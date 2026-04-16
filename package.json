@@ -1,0 +1,47 @@
+{
+  "name": "exeboard",
+  "productName": "ExeBoard",
+  "version": "3.0.0",
+  "description": "",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "postdist": "powershell -Command \"Remove-Item -Recurse -Force dist\\win-unpacked; Remove-Item dist\\*.yml; Remove-Item dist\\*.yaml\"",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "electron": "^41.2.0",
+    "electron-builder": "^26.8.1",
+    "electron-reload": "^2.0.0-alpha.1"
+  },
+  "dependencies": {
+    "fs-extra": "^11.3.4",
+    "ini": "^6.0.0",
+    "ts-node": "^10.9.2"
+  },
+  "build": {
+    "appId": "com.viasoft.exeboard",
+    "asar": true,
+    "directories": {
+      "buildResources": "assets"
+    },
+    "files": [
+      "**/*",
+      "assets/*"
+    ],
+    "win": {
+      "target": "portable",
+      "artifactName": "ExeBoard.${ext}",
+      "icon": "assets/LOGO_EXEBOARD.ico",
+      "requestedExecutionLevel": "requireAdministrator"
+    },
+    "portable": {
+      "requestExecutionLevel": "admin"
+    }
+  }
+}

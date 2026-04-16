@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>ExeBoard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- TOP TABS -->
+        <header class="top-nav">
+            <ul class="nav-links">
+                <li class="active" data-tab="copiar">Copiar Dados</li>
+                <li data-tab="servidores">Servidores</li>
+                <li data-tab="configuracoes">Configurações</li>
+                <li data-tab="sobre">Sobre</li>
+            </ul>
+        </header>
+
+        <main class="content">
+            <!-- ABA COPIAR DADOS -->
+            <section id="copiar" class="tab-content active">
+                
+                <div class="glass-group">
+                    <span class="group-title">Branch (develop / main / tarefa)</span>
+                    <div class="input-with-button">
+                        <div class="path-input-container">
+                            <input type="text" id="edtCaminhoBranch" autocomplete="off" />
+                            <div id="path-suggestions-custom" class="path-suggestions"></div>
+                        </div>
+                        <button class="btn-secondary" id="btnBuscarPath">Procurar</button>
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 10px;">
+                    <label class="custom-checkbox">
+                        <input type="checkbox" id="cbModoAutomacao">
+                        <span class="checkmark"></span>
+                        <span class="label-text">Usar Executáveis de Automação (ExesAutomacao)</span>
+                    </label>
+                </div>
+
+                <div class="glass-group">
+                    <span class="group-title">Ações</span>
+                    <div class="actions-row">
+                        <button id="btnCopiarDados" class="btn-primary">Copiar Dados</button>
+                        <button id="btnCriarConexao" class="btn-secondary" onclick="alert('Criar conexão acionado via executável.')">Criar Conexão</button>
+                        <button id="btnAbrirAtualizador" class="btn-secondary" onclick="openAtualizadoresModal()">Abrir Atualizador</button>
+                    </div>
+                </div>
+
+                <div class="panels-grid">
+                    <!-- Column 1 -->
+                    <div class="column-group">
+                        <span class="group-title-inline" oncontextmenu="showListContextMenu(event, 'chk-bd')">Atualizadores</span>
+                        <div class="input-with-button-sm">
+                            <input type="text" id="txtDestinoAtualizadores" />
+                            <button class="btn-icon" onclick="selectFolderDest('txtDestinoAtualizadores')">
+                                <svg width="14" height="14" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                            </button>
+                        </div>
+                        <div class="list-box" id="clbAtualizadores" oncontextmenu="showListContextMenu(event, 'chk-bd')"></div>
+                    </div>
+                    <!-- Column 2 -->
+                    <div class="column-group">
+                        <span class="group-title-inline" oncontextmenu="showListContextMenu(event, 'chk-client')">Clientes</span>
+                        <div class="input-with-button-sm">
+                            <input type="text" id="txtDestinoClientes" />
+                            <button class="btn-icon" onclick="selectFolderDest('txtDestinoClientes')">
+                                <svg width="14" height="14" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                            </button>
+                        </div>
+                        <div class="list-box" id="clbClientes" oncontextmenu="showListContextMenu(event, 'chk-client')"></div>
+                    </div>
+                    <!-- Column 3 -->
+                    <div class="column-group">
+                        <span class="group-title-inline" oncontextmenu="showListContextMenu(event, 'chk-server')">Servidores</span>
+                        <div class="input-with-button-sm">
+                            <input type="text" id="txtDestinoServidores" />
+                            <button class="btn-icon" onclick="selectFolderDest('txtDestinoServidores')">
+                                <svg width="14" height="14" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                            </button>
+                        </div>
+                        <div class="list-box" id="clbServidores" oncontextmenu="showListContextMenu(event, 'chk-server')"></div>
+                    </div>
+                </div>
+
+                <div class="glass-group log-group">
+                    <span class="group-title">Log de Atividades</span>
+                    <div class="log-layout">
+                        <div class="log-box" id="rtbLog"></div>
+                        <div class="log-buttons">
+                            <button class="btn-secondary" onclick="document.getElementById('rtbLog').innerHTML=''">Limpar Log</button>
+                            <button class="btn-secondary" onclick="filterLogs('err')">Erros</button>
+                            <button class="btn-secondary" onclick="filterLogs('ok')">Sucesso</button>
+                            <button class="btn-secondary" onclick="filterLogs('all')">Todos</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ABA SERVIDORES -->
+            <section id="servidores" class="tab-content">
+                <div style="display:flex; gap: 20px; align-items: center; margin-bottom: 10px;">
+                    <label class="custom-checkbox cb-large">
+                        <input type="checkbox" id="chkFilterRun" onclick="selectAllByStatus(this.id, this.checked)">
+                        <span class="checkmark"></span>
+                        <span class="label-text">Selecionar em execução</span>
+                    </label>
+                    <label class="custom-checkbox cb-large">
+                        <input type="checkbox" id="chkFilterStop" onclick="selectAllByStatus(this.id, this.checked)">
+                        <span class="checkmark"></span>
+                        <span class="label-text">Selecionar Parados</span>
+                    </label>
+                </div>
+
+                <div class="actions-row" style="margin-bottom: 20px;">
+                    <button class="btn-secondary" onclick="batchServerAction('start')">Iniciar</button>
+                    <button class="btn-secondary" onclick="batchServerAction('stop')">Parar</button>
+                    <button class="btn-secondary" style="width: 120px;" onclick="batchServerAction('restart')">Reiniciar</button>
+                </div>
+
+                <div class="glass-group" style="flex:1; display:flex; flex-direction:column; height: 350px;">
+                    <span class="group-title">Servidores</span>
+                    <div class="list-box" id="server-actions-list" style="flex:1;">
+                        <!-- JS Inject -->
+                    </div>
+                </div>
+
+                <div class="glass-group log-group" style="margin-bottom: 0;">
+                    <span class="group-title">Log de Atividades</span>
+                    <div class="log-layout">
+                        <div class="log-box" id="rtbLogServidores" style="height: 120px;"></div>
+                        <div class="log-buttons" style="height: 120px;">
+                            <button class="btn-secondary" onclick="document.getElementById('rtbLogServidores').innerHTML=''">Limpar Log</button>
+                            <button class="btn-secondary" onclick="filterLogs('err', 'servidores')">Erros</button>
+                            <button class="btn-secondary" onclick="filterLogs('ok', 'servidores')">Sucesso</button>
+                            <button class="btn-secondary" onclick="filterLogs('all', 'servidores')">Todos</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ABA CONFIGURAÇÕES -->
+            <section id="configuracoes" class="tab-content">
+                <div class="glass-group" style="margin-bottom: 20px;">
+                    <span class="group-title">Preferências Gerais</span>
+                    <label class="custom-checkbox">
+                        <input type="checkbox" id="chkHabilitarTray">
+                        <span class="checkmark"></span>
+                        <span>Rodar em segundo plano (minimizar para bandeja)</span>
+                    </label>
+                </div>
+                <div class="panels-grid" style="height: 520px;">
+                    <!-- Column 1 -->
+                    <div class="column-group">
+                        <span class="group-title-inline">Gerenciar Atualizadores/Bancos</span>
+                        <div class="list-box" id="cfgAtualizadores" style="flex:1;" oncontextmenu="showListContextMenu(event, 'cfg-del-bd')"></div>
+                        <button class="btn-secondary" style="margin-top:10px" onclick="addDatabaseRow()">Adicionar Atualizador</button>
+                    </div>
+                    <!-- Column 2 -->
+                    <div class="column-group">
+                        <span class="group-title-inline">Gerenciar Aplicações Clientes</span>
+                        <div class="list-box" id="cfgClientes" style="flex:1;" oncontextmenu="showListContextMenu(event, 'cfg-del-cli')"></div>
+                        <button class="btn-secondary" style="margin-top:10px" onclick="addClientRow()">Adicionar Exes</button>
+                    </div>
+                    <!-- Column 3 -->
+                    <div class="column-group">
+                        <span class="group-title-inline">Gerenciar Aplicações/Serviços Servidores</span>
+                        <div class="list-box" id="cfgServidores" style="flex:1;" oncontextmenu="showListContextMenu(event, 'cfg-del-srv')"></div>
+                        <div style="display:flex; gap:10px; margin-top:10px;">
+                            <button class="btn-secondary flex-1" onclick="addServerAutoDetect()">Adicionar Serviço</button>
+                            <button class="btn-secondary flex-1" onclick="addServerManual()">Adicionar Exe</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="display: flex; justify-content: flex-end; gap: 15px; margin-top: 20px;">
+                    <button class="btn-secondary" onclick="removeSelectedConfigs()">Remover Selecionados</button>
+                    <button class="btn-secondary" onclick="cancelChanges()">Cancelar Alterações</button>
+                    <button class="btn-primary" onclick="saveConfig()">Salvar Alterações</button>
+                </div>
+                <span style="color:var(--warning)" id="lblUnsaved"></span>
+            </section>
+
+            <!-- ABA SOBRE -->
+            <section id="sobre" class="tab-content">
+                <div class="glass-group">
+                    <span class="group-title">Sobre o Projeto</span>
+                    <br>
+                    <table class="styled-table" style="width: 60%;">
+                        <thead><tr><th>Nome</th><th>Cargo/Função</th></tr></thead>
+                        <tbody>
+                            <tr><td>Fernando</td><td>Arquiteto de Software</td></tr>
+                            <tr><td>Giancarlo</td><td>Analista de Teste</td></tr>
+                            <tr><td>Nicolas</td><td>Analista de Teste</td></tr>
+                        </tbody>
+                    </table>
+                    <br><br>
+                    <a href="#" class="external-link" onclick="window.api.openExternal('https://github.com/')">Repositório GitHub</a>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modal Flutuante para Atualizadores -->
+    <div id="modalAtualizadores" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); z-index:9999; justify-content:center; align-items:center;">
+        <div class="glass-group" style="width: 400px; background:#1e1e2e;">
+            <span class="group-title">Abrir Atualizador (Process.Start)</span>
+            <div class="list-box" id="listAtualizadoresModal" style="height:200px; margin-bottom:15px; margin-top: 10px;"></div>
+            <div style="display:flex; justify-content:flex-end; gap:10px;">
+                <button class="btn-secondary" onclick="document.getElementById('modalAtualizadores').style.display='none'">Cancelar</button>
+                <button class="btn-primary" onclick="execAtualizadorModal()">Executar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Seletor de Serviço Windows -->
+    <div id="modalSelectService" class="modal-overlay" style="display:none;">
+        <div class="modal-content glass-group" style="width: 500px;">
+            <div class="modal-title">Selecionar Serviço Windows</div>
+            <div class="modal-body">
+                <input type="text" id="txtSearchService" class="search-input-box" placeholder="Pesquisar serviço (Nome ou Exibição)..." />
+                <div id="serviceListContainer" class="service-scroll-list">
+                    <div class="loading-overlay">
+                        <div class="spinner"></div>
+                        <span>Coletando serviços do sistema...</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="document.getElementById('modalSelectService').style.display='none'">Cancelar</button>
+                <button id="btnConfirmService" class="btn-primary" disabled>Adicionar Selecionado</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Confirmação de EXEs/Serviços -->
+    <div id="modalConfirmExes" class="modal-overlay" style="display:none;">
+        <div class="modal-content glass-group" style="width: 500px;">
+            <div class="modal-title">Confirmar Executáveis</div>
+            <div class="modal-body">
+                <p style="margin-bottom: 15px;">Detectamos os seguintes arquivos. Marque os que devem rodar como <b>Serviço Windows</b>:</p>
+                <div id="confirmExesList" class="service-scroll-list" style="height: 200px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-primary" id="btnFinalizeExes">Confirmar e Adicionar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Customizado Genérico (Design Premium) -->
+    <div id="customModal" class="modal-overlay" style="display:none;">
+        <div class="modal-content glass-group">
+            <div id="modalTitle" class="modal-title">Aviso</div>
+            <div id="modalBody" class="modal-body">Mensagem aqui.</div>
+            <div class="modal-footer">
+                <button id="modalBtnCancel" class="btn-secondary" style="display:none;">Cancelar</button>
+                <button id="modalBtnOk" class="btn-primary">Entendido</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Menu de Contexto Customizado -->
+    <div id="listContextMenu" class="context-menu" style="display:none;">
+        <div class="context-item" onclick="bulkCheck(true)">Marcar Todos</div>
+        <div class="context-item" onclick="bulkCheck(false)">Desmarcar Todos</div>
+    </div>
+
+    <script src="renderer.js"></script>
+</body>
+</html>
