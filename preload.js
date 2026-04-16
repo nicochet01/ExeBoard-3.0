@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('api', {
     getPathSuggestions: (partial) => ipcRenderer.invoke('get-path-suggestions', partial),
     openMultiFiles: (defaultPath) => ipcRenderer.invoke('open-multi-files', defaultPath),
     executeExternal: (path) => ipcRenderer.invoke('execute-external', path),
+    openExternal: (url) => ipcRenderer.invoke('open-external-url', url),
 
     buildQueue: (data) => ipcRenderer.invoke('build-queue', data),
     executarCopia: (fila) => ipcRenderer.invoke('execute-copy-files', fila),

@@ -25,29 +25,21 @@ const RETRY_DELAY_MS = 2000;
 function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1100,
-        height: 750,
-        title: "ExeBoard",
+        height: 800,
+        minWidth: 1000,
+        minHeight: 700,
+        autoHideMenuBar: true, // Esconde o menu superior (File, Edit, View...)
         icon: path.join(__dirname, 'assets', 'LOGO_EXEBOARD.ico'),
         webPreferences: {
-            preload: path.join(__dirname, 'preload.js'),
             nodeIntegration: false,
-            contextIsolation: true
-        },
-        autoHideMenuBar: true,
-        backgroundColor: '#1e1e2e'
+            contextIsolation: true,
+            preload: path.join(__dirname, 'preload.js') // Isso faz os dados voltarem a carregar!
+        }
     });
 
     mainWindow.loadFile('index.html');
 
-    mainWindow.on('close', (event) => {
-        const trayEnabled = configCache.GERAL && configCache.GERAL.HABILITAR_TRAY === '1';
-        if (!app.isQuiting && trayEnabled) {
-            event.preventDefault();
-            mainWindow.hide();
-        }
-        return false;
-    });
-
+    // COMPORTAMENTO DE MINIMIZAR: Vai para bandeja
     mainWindow.on('minimize', (event) => {
         const trayEnabled = configCache.GERAL && configCache.GERAL.HABILITAR_TRAY === '1';
         if (trayEnabled) {
@@ -56,50 +48,62 @@ function createWindow() {
         }
     });
 
-    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-        shell.openExternal(url);
-        return { action: 'deny' };
+    // COMPORTAMENTO DE FECHAR: Encerra a aplicação de fato
+    mainWindow.on('close', (event) => {
+        if (!app.isQuiting) {
+            if (tray) tray.destroy();
+        }
     });
 }
 
 function createTray() {
     try {
-        if (tray) tray.destroy(); 
+        if (tray) tray.destroy();
 
         const { nativeImage } = require('electron');
         const iconPath = path.join(__dirname, 'assets', 'LOGO_EXEBOARD.ico');
-        
+
         // nativeImage é muito mais seguro para ler arquivos de dentro do .asar
         const trayIcon = nativeImage.createFromPath(iconPath);
-        
+
         tray = new Tray(trayIcon);
-        
+
         const contextMenu = Menu.buildFromTemplate([
-            { label: 'Abrir Painel', click: () => {
+            {
+                label: 'Abrir Painel', click: () => {
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.show();
+                        mainWindow.setAlwaysOnTop(true);
+                        mainWindow.setAlwaysOnTop(false);
+                        mainWindow.focus();
+                    }
+                }
+            },
+            { type: 'separator' },
+            {
+                label: 'Sair ExeBoard', click: () => {
+                    app.isQuiting = true;
+                    app.quit();
+                }
+            }
+        ]);
+
+        tray.setToolTip('ExeBoard - Gerenciador');
+        tray.setContextMenu(contextMenu);
+
+        tray.on('double-click', () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
                 mainWindow.show();
                 mainWindow.setAlwaysOnTop(true);
                 mainWindow.setAlwaysOnTop(false);
                 mainWindow.focus();
-            }},
-            { type: 'separator' },
-            { label: 'Sair ExeBoard', click: () => {
-                app.isQuiting = true;
-                app.quit();
-            }}
-        ]);
-        
-        tray.setToolTip('ExeBoard - Gerenciador');
-        tray.setContextMenu(contextMenu);
-        
-        tray.on('double-click', () => {
-            mainWindow.show();
-            mainWindow.setAlwaysOnTop(true);
-            mainWindow.setAlwaysOnTop(false);
-            mainWindow.focus();
+            }
         });
-        
+
         tray.on('click', () => {
-            mainWindow.show();
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.show();
+            }
         });
     } catch (err) {
         console.error("Erro fatal ao carregar a Bandeja do Sistema:", err);
@@ -122,8 +126,8 @@ app.on('window-all-closed', () => {
 });
 
 // Helper de envio de mensagens
-function sendLog(msg, color='gray', target='copiar') {
-    if(mainWindow) mainWindow.webContents.send('log-message', { msg, color, target });
+function sendLog(msg, color = 'gray', target = 'copiar') {
+    if (mainWindow) mainWindow.webContents.send('log-message', { msg, color, target });
 }
 
 async function loadConfig() {
@@ -143,7 +147,7 @@ async function loadConfig() {
                 try {
                     await fs.ensureDir(userDataPath);
                     await fs.copy(p, roamingIniPath);
-                } catch(e) {}
+                } catch (e) { }
             }
             activeIniPath = roamingIniPath;
             break;
@@ -246,7 +250,7 @@ const waitForServiceStatus = (name, targetStatus, timeoutMs = 20000) => {
 // Controle explícito
 ipcMain.handle('manage-server', async (event, { srv, action }) => {
     return new Promise((resolve) => {
-        const sendUiLog = (text, c='#a6adc8') => { sendLog(text, c, 'servidores'); };
+        const sendUiLog = (text, c = '#a6adc8') => { sendLog(text, c, 'servidores'); };
         const procName = srv.Nome.endsWith('.exe') ? srv.Nome : srv.Nome + '.exe';
         const pureName = srv.Nome;
 
@@ -284,7 +288,7 @@ ipcMain.handle('manage-server', async (event, { srv, action }) => {
             } else {
                 exec(`taskkill /F /IM "${procName}"`, () => {
                     sendUiLog(`KILL enviado para ${procName}`, '#f38ba8');
-                    resolve(true); 
+                    resolve(true);
                 });
             }
         }
@@ -297,16 +301,16 @@ const secureCopyFile = async (src, dest) => {
     let attempts = 0;
     while (attempts < MAX_RETRIES) {
         if (copyCancelToken) return 'cancelled';
-        
+
         try {
             // Remove ReadOnly se existir no destino
-            if (fs.existsSync(dest)) await fs.chmod(dest, 0o666).catch(()=>{});
+            if (fs.existsSync(dest)) await fs.chmod(dest, 0o666).catch(() => { });
 
             const tempDest = dest + '.tmp';
             await new Promise((resolve, reject) => {
                 const readStream = createReadStream(src, { highWaterMark: COPY_BUFFER_SIZE });
                 const writeStream = createWriteStream(tempDest);
-                
+
                 readStream.on('error', reject);
                 writeStream.on('error', reject);
                 writeStream.on('finish', resolve);
@@ -368,7 +372,7 @@ const indexarDiretorio = async (startDir) => {
                             fileMap.set(name, { fullPath, mtime });
                         }
                     }
-                } catch (errItem) {}
+                } catch (errItem) { }
             }
         } catch (e) {
             sendLog(`Aviso: Pasta ignorada (Acesso Negado): ${currentDir}`, '#fe640b', 'copiar');
@@ -427,7 +431,7 @@ ipcMain.handle('execute-copy-files', async (event, queueData) => {
             }
 
             const isNew = !(await fs.pathExists(task.destino));
-            
+
             if (task.type === 'bd') {
                 // Cópia Recursiva de Pasta
                 const res = await copyFolderRecursive(task.origem, task.destino);
@@ -439,13 +443,13 @@ ipcMain.handle('execute-copy-files', async (event, queueData) => {
                 await fs.ensureDir(path.dirname(task.destino));
                 const res = await secureCopyFile(task.origem, task.destino);
                 if (res === 'cancelled') {
-                    await fs.unlink(task.destino + '.tmp').catch(()=>{});
+                    await fs.unlink(task.destino + '.tmp').catch(() => { });
                     break;
                 }
 
                 news++; // Contabiliza cada arquivo processado com sucesso
                 if (isNew) {
-                    sendLog(`NOVO ARQUIVO: ${task.destino}`, '#fe640b', 'copiar');
+                    sendLog(`NOVO ARQUIVO (Instalação Limpa): ${path.basename(task.destino)}`, '#d65d0e', 'copiar');
                 } else {
                     sendLog(`ATUALIZADO: ${task.destino}`, '#40a02b', 'copiar');
                 }
@@ -463,26 +467,29 @@ ipcMain.handle('execute-copy-files', async (event, queueData) => {
 // Novo build-queue com Inteligência de Mapeamento (Fire and Forget)
 ipcMain.handle('build-queue', async (event, { reqs, branchRoot }) => {
     const queue = [];
-    if (!reqs || reqs.length === 0) return queue;
+    const learnedPaths = []; // [{type, name, subFolder}]
+    if (!reqs || reqs.length === 0) return { queue, learnedPaths };
 
     try {
         sendLog(`Mapeando Branch: ${branchRoot}`, '#89b4fa', 'copiar');
-        
+
         // 1. Mapeia a Branch Inteira (Origem) usando a RAIZ fornecida
         const indexingResults = await indexarDiretorio(branchRoot);
         const sourceFileMap = indexingResults.fileMap;
         const sourceDirMap = indexingResults.dirMap;
-        
+
         if (sourceFileMap.size === 0 && sourceDirMap.size === 0) {
             sendLog('AVISO: Nenhum arquivo ou pasta encontrado na Branch.', '#f38ba8', 'copiar');
             return queue;
         }
 
-        // 2. Mapeia as Raízes de Destino Únicas
-        const destRoots = [...new Set(reqs.map(r => r.destDir))];
+        // 2. Busca Híbrida Seletiva (Scan apenas se houver itens sem subpasta definida)
+        const itemsToDiscover = reqs.filter(r => r.type !== 'bd' && (!r.itemData.SubDiretorios || r.itemData.SubDiretorios === '' || r.itemData.SubDiretorios === '\\'));
+        const rootsToScan = [...new Set(itemsToDiscover.map(r => r.destDir))];
         const destMappingResults = new Map();
-        for (const root of destRoots) {
-            sendLog(`Mapeando destino: ${path.basename(root)}...`, '#89b4fa', 'copiar');
+        
+        for (const root of rootsToScan) {
+            sendLog(`MODO DETETIVE: Localizando subpastas em ${path.basename(root)}...`, '#cba6f7', 'copiar');
             destMappingResults.set(root, await indexarDiretorio(root));
         }
 
@@ -491,7 +498,7 @@ ipcMain.handle('build-queue', async (event, { reqs, branchRoot }) => {
         // 3. Monta a Fila Cruzando Dados
         for (const req of reqs) {
             let pureName = (req.type === 'client' || req.type === 'server' ? req.itemData.Nome : req.itemData.Nome || req.itemData).toLowerCase();
-            
+
             if (req.type === 'bd') {
                 // Lógica de Atualizadores (Pastas)
                 let sourceFolder = sourceDirMap.get(pureName);
@@ -514,24 +521,47 @@ ipcMain.handle('build-queue', async (event, { reqs, branchRoot }) => {
                 // Lógica de Arquivos (Clientes e Servidores)
                 if (pureName.endsWith('.exe')) pureName = pureName.slice(0, -4);
                 const exeName = pureName + '.exe';
-                
+
                 let sourceFile = sourceFileMap.get(exeName) || sourceFileMap.get(pureName);
                 if (!sourceFile) {
                     sendLog(`X Não encontrado na Branch: ${pureName}`, '#bac2de', 'copiar');
                     continue;
                 }
 
-                const destMapObj = destMappingResults.get(req.destDir);
-                const existingInDest = destMapObj ? destMapObj.fileMap.get(exeName) : null;
+                // FIDELIDADE DE NOME: Usa o nome EXATO do INI/Interface para o destino
+                const finalFileName = req.itemData.Nome.toLowerCase().endsWith('.exe') ? req.itemData.Nome : req.itemData.Nome + '.exe';
 
+                // Lógica de Resolução de Caminho
+                let sub = (req.itemData.SubDiretorios || '').replace(/\\+$/, '');
                 let finalDest;
-                if (existingInDest) {
-                    finalDest = existingInDest.fullPath;
-                    sendLog(`-> Aprendido: ${exeName} vai para subpasta existente.`, '#cba6f7', 'copiar');
-                } else {
-                    const sub = req.itemData.SubDiretorios || '';
-                    finalDest = path.join(req.destDir, sub, path.basename(sourceFile.fullPath));
+
+                // Se a subpasta estiver vazia, tenta o Auto-Discovery (Scan Seletivo)
+                if (!sub || sub === '' || sub === '\\') {
+                    const destMapObj = destMappingResults.get(req.destDir);
+                    const existingInDest = destMapObj ? destMapObj.fileMap.get(exeName) : null;
+
+                    if (existingInDest) {
+                        // Calcula a subpasta relativa real encontrada no HD
+                        const rootNorm = req.destDir.toLowerCase().replace(/\//g, '\\').replace(/\\+$/, '');
+                        const foundPathNorm = path.dirname(existingInDest.fullPath).toLowerCase().replace(/\//g, '\\').replace(/\\+$/, '');
+                        
+                        let realSub = '';
+                        if (foundPathNorm.startsWith(rootNorm)) {
+                            realSub = foundPathNorm.substring(rootNorm.length);
+                            if (realSub !== '' && !realSub.startsWith('\\')) realSub = '\\' + realSub;
+                        }
+
+                        sub = realSub;
+                        sendLog(`-> DESCOBERTO: ${finalFileName} está em ${sub || 'Raiz'}`, '#cba6f7', 'copiar');
+                        learnedPaths.push({
+                            type: req.type,
+                            name: req.itemData.Nome,
+                            subFolder: sub
+                        });
+                    }
                 }
+
+                finalDest = path.join(req.destDir, sub, finalFileName);
 
                 queue.push({
                     origem: sourceFile.fullPath,
@@ -544,16 +574,22 @@ ipcMain.handle('build-queue', async (event, { reqs, branchRoot }) => {
         sendLog(`ERRO CRÍTICO no Mapeamento: ${err.message}`, '#f38ba8', 'copiar');
     }
 
-    return queue;
+    return { queue, learnedPaths };
+});
+
+// Corrigindo interrupção de cópia
+ipcMain.on('cancel-copy', () => {
+    copyCancelToken = true;
+    sendLog('Solicitação de cancelamento recebida pelo Motor.', '#f38ba8', 'copiar');
 });
 
 ipcMain.handle('open-folder-dialog', async (event, defaultPath) => {
     const opts = { properties: ['openDirectory'] };
     if (defaultPath) {
-        try { 
+        try {
             const cleanPath = defaultPath.replace(/Informe.*/, '').trim();
-            if (cleanPath && await fs.pathExists(cleanPath)) opts.defaultPath = cleanPath; 
-        } catch(e){}
+            if (cleanPath && await fs.pathExists(cleanPath)) opts.defaultPath = cleanPath;
+        } catch (e) { }
     }
     const res = await dialog.showOpenDialog(mainWindow, opts);
     return res.filePaths[0] || null;
@@ -604,31 +640,44 @@ ipcMain.handle('get-path-suggestions', async (event, partialPath) => {
                         if ((await fs.stat(full)).isDirectory()) {
                             folders.push(full);
                         }
-                    } catch (e) {}
+                    } catch (e) { }
                 }
                 if (folders.length > 15) break; // Limit suggestions
             }
             return folders;
         }
-    } catch (err) {}
+    } catch (err) { }
     return [];
 });
 
 ipcMain.handle('open-multi-files', async (event, defaultPath) => {
     const opts = { properties: ['openFile', 'multiSelections'], filters: [{ name: 'Executables', extensions: ['exe'] }] };
     if (defaultPath) {
-        try { 
+        try {
             const cleanPath = defaultPath.replace(/Informe.*/, '').trim();
-            if (cleanPath && await fs.pathExists(cleanPath)) opts.defaultPath = cleanPath; 
-        } catch(e){}
+            if (cleanPath && await fs.pathExists(cleanPath)) opts.defaultPath = cleanPath;
+        } catch (e) { }
     }
     const res = await dialog.showOpenDialog(mainWindow, opts);
-    return res.filePaths.map(p => path.basename(p));
+    return res.filePaths;
 });
 
 ipcMain.handle('execute-external', async (event, exePath) => {
     exec(`start "" "${exePath}"`, (err) => {
-        if(err) sendLog(`Erro ao executar ${exePath}: ${err.message}`, '#f38ba8', 'copiar');
+        if (err) sendLog(`Erro ao executar ${exePath}: ${err.message}`, '#f38ba8', 'copiar');
         else sendLog(`Programa ${exePath} iniciado na nuvem de Processos.`, '#a6adc8', 'copiar');
     });
+});
+
+ipcMain.handle('open-external-url', async (event, url) => {
+    shell.openExternal(url);
+});
+
+// Impede que o app feche se houver um erro inesperado em alguma operação de arquivo
+process.on('uncaughtException', (err) => {
+    console.error('Erro não tratado:', err);
+    // Opcional: enviar log para a UI se o mainWindow ainda existir
+    if (mainWindow) {
+        sendLog(`Erro interno (Processo): ${err.message}`, '#f38ba8', 'copiar');
+    }
 });

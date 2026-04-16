@@ -149,13 +149,106 @@ function renderLists() {
 
     // Aba 3 - Configurações
     const cfgC = document.getElementById('cfgClientes'); cfgC.innerHTML = '';
-    clientList.forEach((cli, idx) => cfgC.innerHTML += `<div class="list-item"><label class="custom-checkbox"><input type="checkbox" class="cfg-del-cli" value="${idx}"><span class="checkmark"></span><span>${cli.Nome}</span></label></div>`);
+    clientList.forEach((cli, idx) => {
+        cfgC.innerHTML += `
+            <div class="list-item" style="display:flex; justify-content: space-between; width: 100%;">
+                <label class="custom-checkbox">
+                    <input type="checkbox" class="cfg-del-cli" value="${idx}">
+                    <span class="checkmark"></span>
+                    <span>${cli.Nome}</span>
+                </label>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span class="subfolder-tag" title="Subpasta de destino">${cli.SubDiretorios || '\\'}</span>
+                    <button class="btn-icon-sm btn-edit-client" data-index="${idx}" title="Editar Subpasta">
+                         <svg style="pointer-events:none" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                    </button>
+                </div>
+            </div>`;
+    });
 
     const cfgS = document.getElementById('cfgServidores'); cfgS.innerHTML = '';
-    serverList.forEach((srv, idx) => cfgS.innerHTML += `<div class="list-item"><label class="custom-checkbox"><input type="checkbox" class="cfg-del-srv" value="${idx}"><span class="checkmark"></span><span>${srv.Nome}</span></label></div>`);
+    serverList.forEach((srv, idx) => {
+        const isNative = srv.IsPureService;
+        cfgS.innerHTML += `
+            <div class="list-item" style="display:flex; justify-content: space-between; width: 100%;">
+                <label class="custom-checkbox">
+                    <input type="checkbox" class="cfg-del-srv" value="${idx}">
+                    <span class="checkmark"></span>
+                    <span>${srv.Nome}</span>
+                </label>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    ${isNative ? 
+                        `<span class="service-tag-native" title="Serviço Gerenciado pelo Windows">Serviço Nativo</span>` : 
+                        `<span class="subfolder-tag" title="Subpasta de destino">${srv.SubDiretorios || '\\'}</span>`
+                    }
+                    ${!isNative ? `
+                    <button class="btn-icon-sm btn-edit-server" data-index="${idx}" title="Editar Subpasta">
+                         <svg style="pointer-events:none" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                    </button>` : ''}
+                </div>
+            </div>`;
+    });
 
     const cfgA = document.getElementById('cfgAtualizadores'); cfgA.innerHTML = '';
     bdList.forEach((bd, idx) => cfgA.innerHTML += `<div class="list-item"><label class="custom-checkbox"><input type="checkbox" class="cfg-del-bd" value="${idx}"><span class="checkmark"></span><span>${bd}</span></label></div>`);
+
+    // Atrela eventos de edição
+    document.querySelectorAll('.btn-edit-client').forEach(btn => {
+        btn.onclick = () => window.editSubfolder('client', parseInt(btn.dataset.index));
+    });
+    document.querySelectorAll('.btn-edit-server').forEach(btn => {
+        btn.onclick = () => window.editSubfolder('server', parseInt(btn.dataset.index));
+    });
+}
+
+window.editSubfolder = (type, index, onFinish) => {
+    const list = type === 'client' ? clientList : serverList;
+    const item = list[index];
+    const rootPath = type === 'client' ? 
+        document.getElementById('txtDestinoClientes').value : 
+        document.getElementById('txtDestinoServidores').value;
+
+    const modal = document.getElementById('modalEditSubfolder');
+    const input = document.getElementById('edtSubfolderValue');
+    const label = document.getElementById('labelSubfolderInfo');
+    const btnBrowse = document.getElementById('btnBrowseSubfolder');
+    const btnConfirm = document.getElementById('btnConfirmSubfolder');
+
+    label.textContent = `Definindo destino para: ${item.Nome}`;
+    input.value = item.SubDiretorios || '\\';
+    modal.style.display = 'flex';
+
+    btnBrowse.onclick = async () => {
+        const folder = await window.api.openFolder(rootPath);
+        if (folder) {
+            let relative = getRelativeSubfolder(folder, rootPath);
+            if (relative === '' && !folder.toLowerCase().replace(/\//g,'\\').startsWith(rootPath.toLowerCase().replace(/\//g,'\\'))) {
+                showCustomModal("Aviso", "A pasta selecionada deve estar dentro da pasta Raiz configurada.", "info");
+                return;
+            }
+            input.value = relative || '\\';
+        }
+    };
+
+    btnConfirm.onclick = () => {
+        let clean = input.value.trim();
+        if (clean !== '' && clean !== '\\' && !clean.startsWith('\\')) clean = '\\' + clean;
+        if (clean === '\\') clean = '';
+        
+        item.SubDiretorios = clean;
+        modal.style.display = 'none';
+        markUnsaved();
+        renderLists();
+        if (onFinish) onFinish();
+    };
+};
+
+// Gerenciador de fila de configuração (para adições da Branch)
+let pendingConfigs = [];
+function processNextPendingConfig() {
+    if (pendingConfigs.length === 0) return;
+    const item = pendingConfigs.shift();
+    window.editSubfolder(item.type, item.index, processNextPendingConfig);
 }
 
 // ==== Setup Inicial ====
@@ -189,7 +282,8 @@ async function init() {
                 Nome: srvBase[`Servidor${i}`], 
                 Tipo: srvBase[`Tipo${i}`]||'Servico',
                 IsPureService: srvBase[`IsPureService${i}`] === 'Sim',
-                AppServidora: srvBase[`AppServidora${i}`] === 'Sim' || srvBase[`AppServidora${i}`] === undefined // Default true para legado
+                AppServidora: srvBase[`AppServidora${i}`] === 'Sim' || srvBase[`AppServidora${i}`] === undefined,
+                SubDiretorios: srvBase[`SubDiretorios${i}`] || '' // Suporte a subpastas em servidores
             });
         }
     }
@@ -304,16 +398,24 @@ document.getElementById('btnCopiarDados').addEventListener('click', async () => 
         return;
     }
 
+    // 1. Validação de Destinos (Aba Copiar Dados)
+    const destCli = document.getElementById('txtDestinoClientes').value;
+    const destSrv = document.getElementById('txtDestinoServidores').value;
+    const destAtu = document.getElementById('txtDestinoAtualizadores').value;
+
+    if (!destCli.trim() || !destSrv.trim() || !destAtu.trim() || 
+        destCli.includes('Informe') || destSrv.includes('Informe') || destAtu.includes('Informe')) {
+        showCustomModal("Caminhos Obrigatórios", "Por favor, informe os caminhos de destino (Clientes, Servidores e Atualizadores) na aba 'Copiar Dados' antes de iniciar a cópia.", "info");
+        return;
+    }
+
     isCopying = true;
+    toggleUILock(true);
     btn.textContent = "Cancelar Cópia";
     btn.style.background = LOG_COLORS.error;
     
     // UI Lock: Bloqueia botões e o acesso à Aba de Configurações
     document.querySelector('[data-tab="configuracoes"]').style.display = 'none';
-    document.getElementById('btnCriarConexao').disabled = true;
-    document.getElementById('btnBuscarPath').disabled = true;
-    document.getElementById('btnAbrirAtualizador').disabled = true;
-    document.querySelectorAll('.btn-icon').forEach(b => b.disabled = true);
     
     await window.saveConfig(); 
 
@@ -334,15 +436,29 @@ document.getElementById('btnCopiarDados').addEventListener('click', async () => 
     for(let srv of checkedServers) await window.api.manageServer({ srv, action: 'stop' });
 
     try {
-        const queue = await window.api.buildQueue({ reqs, branchRoot: baseBranch });
+        const buildResult = await window.api.buildQueue({ reqs, branchRoot: baseBranch });
+        const queue = buildResult.queue;
+        const learnedPaths = buildResult.learnedPaths || [];
+
+        // Auto-Aprendizado: Atualiza as subpastas nas listas se o Main descobriu novos caminhos
+        if (learnedPaths.length > 0) {
+            learnedPaths.forEach(learned => {
+                const list = learned.type === 'client' ? clientList : serverList;
+                const item = list.find(i => i.Nome.toLowerCase() === learned.name.toLowerCase());
+                if (item) item.SubDiretorios = learned.subFolder;
+            });
+            await window.saveConfig(); // Persiste no INI o aprendizado
+            appendLog(`[MEMÓRIA] ${learnedPaths.length} caminhos foram aprendidos e salvos no INI.`, LOG_COLORS.automation, 'copiar');
+            renderLists();
+        }
+
         const block = await window.api.executarCopia(queue);
 
         if (block.status === 'completed') {
-            appendLog(`Cópia finalizada. ${block.news} arquivos novos colados.`, LOG_COLORS.success, 'copiar');
+            appendLog(`Cópia finalizada. ${block.news} arquivos processados.`, LOG_COLORS.success, 'copiar');
             
             for(let srv of checkedServers) {
                 if (srv.Tipo === 'Servico') await window.api.manageServer({ srv, action: 'start' });
-                else appendLog(`Aviso: ${srv.Nome} é Aplicação e deve ser iniciada manualmente.`, '#bac2de', 'copiar');
             }
         } else {
             appendLog(`Operação cancelada ou interrompida. Erros: ${block.errors}`, LOG_COLORS.error, 'copiar');
@@ -352,14 +468,37 @@ document.getElementById('btnCopiarDados').addEventListener('click', async () => 
     }
 
     isCopying = false;
+    toggleUILock(false);
     btn.textContent = "Copiar Dados";
     btn.style.background = 'var(--accent)';
     document.querySelector('[data-tab="configuracoes"]').style.display = 'block';
-    document.getElementById('btnCriarConexao').disabled = false;
-    document.getElementById('btnBuscarPath').disabled = false;
-    document.getElementById('btnAbrirAtualizador').disabled = false;
-    document.querySelectorAll('.btn-icon').forEach(b => b.disabled = false);
 });
+
+// Helper: Trava de Interface
+function toggleUILock(lock) {
+    // Inputs de Caminhos
+    document.getElementById('edtCaminhoBranch').disabled = lock;
+    document.getElementById('txtDestinoClientes').disabled = lock;
+    document.getElementById('txtDestinoServidores').disabled = lock;
+    document.getElementById('txtDestinoAtualizadores').disabled = lock;
+    document.getElementById('cbModoAutomacao').disabled = lock;
+
+    // Checkboxes das Listas
+    document.querySelectorAll('.chk-client, .chk-server, .chk-bd').forEach(cb => cb.disabled = lock);
+
+    // Botões de Ação na Aba Principal
+    document.getElementById('btnCriarConexao').disabled = lock;
+    document.getElementById('btnBuscarPath').disabled = lock;
+    document.getElementById('btnAbrirAtualizador').disabled = lock;
+    document.querySelectorAll('.btn-icon').forEach(b => b.disabled = lock);
+
+    // Botões da Aba Configurações (Prevenção extra)
+    const configBtns = ["btnRemoveSelected", "btnCancelChanges", "btnSaveConfig"];
+    configBtns.forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.disabled = lock;
+    });
+}
 
 // Mocking actions
 document.getElementById('btnBuscarPath').addEventListener('click', async () => {
@@ -371,14 +510,9 @@ document.getElementById('btnBuscarPath').addEventListener('click', async () => {
 window.selectFolderDest = async (inputId) => {
     let def = document.getElementById(inputId).value;
     
-    // Fallback de Lupa: Se vazio ou informe o caminho, tenta INI ou Padrões
+    // Se estiver vazio ou contiver o placeholder, limpa para abrir na raiz
     if (!def || def.startsWith('Informe')) {
-        const map = {
-            'txtDestinoAtualizadores': 'C:\\Viasoft\\Dados',
-            'txtDestinoClientes': 'C:\\Viasoft\\Client',
-            'txtDestinoServidores': 'C:\\Viasoft\\Server'
-        };
-        def = map[inputId] || '';
+        def = '';
     }
 
     const f = await window.api.openFolder(def);
@@ -404,6 +538,86 @@ window.execAtualizadorModal = () => {
     window.api.executeExternal(combined);
     document.getElementById('modalAtualizadores').style.display = 'none';
 };
+
+// Helper: Escolha de Origem
+async function requestFilesWithOrigin(type) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('modalOriginChoice');
+        const btnBranch = document.getElementById('btnOriginBranch');
+        const btnLocal = document.getElementById('btnOriginLocal');
+        
+        modal.style.display = 'flex';
+        
+        btnBranch.onclick = async () => {
+            modal.style.display = 'none';
+            const branchPath = document.getElementById('edtCaminhoBranch').value;
+            if(!branchPath || branchPath.toLowerCase().includes('informe')) {
+                showCustomModal("Aviso", "Por favor, informe o caminho da Branch na primeira aba antes de extrair arquivos.", "info");
+                resolve(null);
+                return;
+            }
+            const files = await window.api.openMultiFiles(branchPath);
+            resolve({ files, origin: 'branch' });
+        };
+        
+        btnLocal.onclick = async () => {
+            modal.style.display = 'none';
+            let localPath = "";
+            if (type === 'client') localPath = document.getElementById('txtDestinoClientes').value;
+            if (type === 'server') localPath = document.getElementById('txtDestinoServidores').value;
+            
+            const files = await window.api.openMultiFiles(localPath);
+            resolve({ files, origin: 'local' });
+        };
+    });
+}
+
+// Helper: Extrair Subpasta Relativa
+function getRelativeSubfolder(fullPath, rootPath) {
+    if (!fullPath || !rootPath) return '';
+    
+    // Normaliza caminhos: lowercase, barras invertidas e remove barras no final
+    let f = fullPath.replace(/\//g, '\\').replace(/\\+$/, '');
+    let r = rootPath.replace(/\//g, '\\').replace(/\\+$/, '');
+    
+    let fLow = f.toLowerCase();
+    let rLow = r.toLowerCase();
+
+    // Se a pasta selecionada for exatamente a raiz
+    if (fLow === rLow) return '';
+
+    // Se a pasta estiver dentro da raiz
+    if (fLow.startsWith(rLow)) {
+        let relative = f.substring(r.length);
+        // Garante que comece com \
+        if (relative !== '' && !relative.startsWith('\\')) relative = '\\' + relative;
+        return relative;
+    }
+    return '';
+}
+
+// Helper: Dedução Lógica (Efeito Manada)
+function getMostFrequentSubfolder(list) {
+    if (!list || list.length === 0) return '';
+    
+    const counts = {};
+    let maxCount = 0;
+    let winner = '';
+    
+    list.forEach(item => {
+        const sub = (item.SubDiretorios || '').trim();
+        if (sub && sub !== '') {
+            counts[sub] = (counts[sub] || 0) + 1;
+            if (counts[sub] > maxCount) {
+                maxCount = counts[sub];
+                winner = sub;
+            }
+        }
+    });
+    
+    // Se não houver padrão claro ou todos vazios, retorna raiz
+    return winner;
+}
 
 // ==== Aba Configurações Adders ====
 let allWindowsServices = [];
@@ -436,6 +650,7 @@ function renderServiceList(data) {
         item.className = 'service-list-item';
         item.innerHTML = `<div class="indicator ${s.Status === 4 ? 'running' : 'stopped'}" style="margin:0"></div>
                           <div><div class="service-name">${s.Name}</div><div class="service-display">${s.DisplayName}</div></div>`;
+        item.dataset.selected = s.Name;
         item.onclick = () => {
             document.querySelectorAll('.service-list-item').forEach(i => i.classList.remove('selected'));
             item.classList.add('selected');
@@ -457,66 +672,146 @@ document.getElementById('btnConfirmService').onclick = () => {
         return;
     }
 
-    serverList.push({ Nome: name, Tipo: 'Servico', IsPureService: true, AppServidora: false });
-    renderLists(); markUnsaved();
+    serverList.push({ 
+        Nome: name, 
+        Tipo: 'Servico', 
+        IsPureService: true, 
+        AppServidora: false,
+        SubDiretorios: '' // Serviços Windows não possuem subpasta de destino no ExeBoard
+    });
+    
     document.getElementById('modalSelectService').style.display = 'none';
+    markUnsaved();
+    renderLists();
 };
 
 window.addServerManual = async () => { 
-    const def = document.getElementById('txtDestinoServidores').value;
-    const exes = await window.api.openMultiFiles(def); 
-    if(exes && exes.length > 0) {
+    const result = await requestFilesWithOrigin('server'); 
+    if(!result || !result.files || result.files.length === 0) return;
+    const { files, origin } = result;
+
+    // STEP: Dedução Lógica se for Branch
+    let inferredSub = '';
+    if (origin === 'branch') {
+        inferredSub = getMostFrequentSubfolder(serverList);
+    }
+
+    // STEP 3: Checagem em background
+    const allServices = await window.api.getWindowsServices();
+    const uncertainExes = [];
+
+    const newItems = [];
+    for(let fullPath of files) {
+        let exe = fullPath.split(/[\\/]/).pop();
+        let raw = exe.replace('.exe','');
+
+        let subToUse = inferredSub;
+        if (origin === 'local') {
+            subToUse = getRelativeSubfolder(fullPath, document.getElementById('txtDestinoServidores').value);
+        }
+
+        const match = allServices.find(s => 
+            s.Name.toLowerCase() === raw.toLowerCase() || 
+            s.DisplayName.toLowerCase().toLowerCase() === raw.toLowerCase()
+        );
+
+        if(match) {
+            if(!serverList.find(s => s.Nome === match.Name)) {
+                serverList.push({ 
+                    Nome: match.Name, Tipo: 'Servico', IsPureService: false, 
+                    AppServidora: true, SubDiretorios: subToUse
+                });
+                if (origin === 'branch') newItems.push({ type: 'server', index: serverList.length - 1 });
+            }
+        } else {
+            uncertainExes.push({ path: fullPath, name: raw });
+        }
+    }
+
+    if(uncertainExes.length > 0) {
         const modal = document.getElementById('modalConfirmExes');
         const list = document.getElementById('confirmExesList');
-        modal.style.display = 'flex';
-        list.innerHTML = '';
+        modal.style.display = 'flex'; list.innerHTML = '';
 
-        for(let exe of exes) {
-            let raw = exe.replace('.exe','');
-            const type = await window.api.detectarTipo(raw);
+        for(let obj of uncertainExes) {
+            let exe = obj.path.split(/[\\/]/).pop();
+            const type = await window.api.detectarTipo(obj.name);
             const isSrv = type === 'Servico';
             list.innerHTML += `
                 <div class="service-list-item">
                     <label class="custom-checkbox">
-                        <input type="checkbox" class="chk-confirm-srv" value="${raw}" ${isSrv ? 'checked' : ''}>
+                        <input type="checkbox" class="chk-confirm-srv" data-path="${obj.path}" value="${obj.name}" ${isSrv ? 'checked' : ''}>
                         <span class="checkmark"></span>
                     </label>
-                    <span>${exe}</span>
+                    <div style="display:flex; flex-direction:column">
+                        <span>${exe}</span>
+                        <small style="font-size:10px; opacity:0.6">${obj.path}</small>
+                    </div>
                 </div>`;
         }
 
         document.getElementById('btnFinalizeExes').onclick = () => {
             document.querySelectorAll('.chk-confirm-srv').forEach(chk => {
                 const name = chk.value;
+                const pathSelected = chk.dataset.path;
                 if(!serverList.find(s => s.Nome === name)) {
+                    let subFinal = inferredSub;
+                    if (origin === 'local') subFinal = getRelativeSubfolder(pathSelected, document.getElementById('txtDestinoServidores').value);
+
                     serverList.push({ 
-                        Nome: name, 
-                        Tipo: chk.checked ? 'Servico' : 'Aplicacao',
-                        IsPureService: false,
-                        AppServidora: true
+                        Nome: name, Tipo: chk.checked ? 'Servico' : 'Aplicacao',
+                        IsPureService: false, AppServidora: true, SubDiretorios: subFinal
                     });
+                    if (origin === 'branch') newItems.push({ type: 'server', index: serverList.length - 1 });
                 }
             });
-            renderLists(); markUnsaved();
             modal.style.display = 'none';
+            renderLists(); markUnsaved();
+            if (newItems.length > 0) {
+                pendingConfigs = pendingConfigs.concat(newItems);
+                processNextPendingConfig();
+            }
         };
+    } else {
+        renderLists(); markUnsaved();
+        if (newItems.length > 0) {
+            pendingConfigs = pendingConfigs.concat(newItems);
+            processNextPendingConfig();
+        }
     }
 }
 window.addClientRow = async () => { 
-    const def = document.getElementById('txtDestinoClientes').value;
-    const exes = await window.api.openMultiFiles(def); 
-    if(exes && exes.length > 0) {
-        exes.forEach(exe => {
-            if(clientList.find(c => c.Nome === exe)) return; // Unicidade
+    const result = await requestFilesWithOrigin('client'); 
+    if(!result || !result.files || result.files.length === 0) return;
+    const { files, origin } = result;
 
-            let guessFolder = '';
+    let inferredSub = '';
+    if (origin === 'branch') inferredSub = getMostFrequentSubfolder(clientList);
+
+    const newItems = [];
+    files.forEach(fullPath => {
+        let exe = fullPath.split(/[\\/]/).pop();
+        if(clientList.find(c => c.Nome === exe)) return; 
+
+        let subToUse = inferredSub;
+        if (origin === 'local') {
+            subToUse = getRelativeSubfolder(fullPath, document.getElementById('txtDestinoClientes').value);
+        } else if (!subToUse) {
             let similar = clientList.find(c => c.Nome.substring(0,3) === exe.substring(0,3));
-            if(similar) guessFolder = similar.SubDiretorios;
-            clientList.push({Nome: exe, SubDiretorios: guessFolder});
-        });
-        renderLists(); markUnsaved();
+            if(similar) subToUse = similar.SubDiretorios;
+        }
+
+        clientList.push({Nome: exe, SubDiretorios: subToUse});
+        if (origin === 'branch') newItems.push({ type: 'client', index: clientList.length - 1 });
+    });
+    
+    renderLists(); markUnsaved();
+    if (newItems.length > 0) {
+        pendingConfigs = pendingConfigs.concat(newItems);
+        processNextPendingConfig();
     }
 }
+
 window.addDatabaseRow = async () => { 
     const def = document.getElementById('txtDestinoAtualizadores').value;
     const f = await window.api.openFolder(def); 
@@ -573,8 +868,9 @@ window.saveConfig = async () => {
         fullConfig.APLICACOES_SERVIDORAS[`Servidor${i}`] = s.Nome; 
         fullConfig.APLICACOES_SERVIDORAS[`Tipo${i}`] = s.Tipo; 
         fullConfig.APLICACOES_SERVIDORAS[`Replicar${i}`] = "Sim";
-        if (s.IsPureService) fullConfig.APLICACOES_SERVIDORAS[`IsPureService${i}`] = "Sim";
-        if (s.AppServidora) fullConfig.APLICACOES_SERVIDORAS[`AppServidora${i}`] = "Sim";
+        fullConfig.APLICACOES_SERVIDORAS[`IsPureService${i}`] = s.IsPureService ? "Sim" : "Não";
+        fullConfig.APLICACOES_SERVIDORAS[`AppServidora${i}`] = s.AppServidora ? "Sim" : "Não";
+        if (s.SubDiretorios) fullConfig.APLICACOES_SERVIDORAS[`SubDiretorios${i}`] = s.SubDiretorios;
     });
 
     fullConfig.BANCO_DE_DADOS = { Count: bdList.length };
