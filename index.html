@@ -17,7 +17,6 @@
             <ul class="nav-links">
                 <li class="active" data-tab="copiar">Copiar Dados</li>
                 <li data-tab="servidores">Servidores</li>
-                <li data-tab="configuracoes">Configurações</li>
                 <li data-tab="sobre">Sobre</li>
             </ul>
         </header>
@@ -25,6 +24,13 @@
         <main class="content">
             <!-- ABA COPIAR DADOS -->
             <section id="copiar" class="tab-content active">
+
+                <div class="toolbar-row">
+                    <span class="toolbar-spacer"></span>
+                    <button class="btn-toolbar" id="btnToggleTheme" title="Alternar Tema">🌙</button>
+                    <button class="btn-toolbar btn-toolbar-accent" id="btnOpenSettings"
+                        title="Configurações">⚙️</button>
+                </div>
 
                 <div class="glass-group">
                     <span class="group-title">Branch (develop / main / tarefa)</span>
@@ -60,48 +66,24 @@
                     <!-- Column 1 -->
                     <div class="column-group">
                         <span class="group-title-inline"
-                            oncontextmenu="showListContextMenu(event, 'chk-bd')">Atualizadores</span>
-                        <div class="input-with-button-sm">
-                            <input type="text" id="txtDestinoAtualizadores" />
-                            <button class="btn-icon" onclick="selectFolderDest('txtDestinoAtualizadores')">
-                                <svg width="14" height="14" viewBox="0 0 24 24">
-                                    <path
-                                        d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
-                                </svg>
-                            </button>
-                        </div>
+                            oncontextmenu="showListContextMenu(event, 'chk-bd')">Atualizadores <span class="help-icon"
+                                data-tooltip="Dica: Marque apenas os Executáveis/Arquivos que você vai atualizar/utilizar.">i</span></span>
                         <div class="list-box" id="clbAtualizadores"
                             oncontextmenu="showListContextMenu(event, 'chk-bd')"></div>
                     </div>
                     <!-- Column 2 -->
                     <div class="column-group">
                         <span class="group-title-inline"
-                            oncontextmenu="showListContextMenu(event, 'chk-client')">Clientes</span>
-                        <div class="input-with-button-sm">
-                            <input type="text" id="txtDestinoClientes" />
-                            <button class="btn-icon" onclick="selectFolderDest('txtDestinoClientes')">
-                                <svg width="14" height="14" viewBox="0 0 24 24">
-                                    <path
-                                        d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
-                                </svg>
-                            </button>
-                        </div>
+                            oncontextmenu="showListContextMenu(event, 'chk-client')">Clientes <span class="help-icon"
+                                data-tooltip="Dica: Marque apenas os Executáveis/Arquivos que você vai atualizar/utilizar.">i</span></span>
                         <div class="list-box" id="clbClientes" oncontextmenu="showListContextMenu(event, 'chk-client')">
                         </div>
                     </div>
                     <!-- Column 3 -->
                     <div class="column-group">
                         <span class="group-title-inline"
-                            oncontextmenu="showListContextMenu(event, 'chk-server')">Servidores</span>
-                        <div class="input-with-button-sm">
-                            <input type="text" id="txtDestinoServidores" />
-                            <button class="btn-icon" onclick="selectFolderDest('txtDestinoServidores')">
-                                <svg width="14" height="14" viewBox="0 0 24 24">
-                                    <path
-                                        d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
-                                </svg>
-                            </button>
-                        </div>
+                            oncontextmenu="showListContextMenu(event, 'chk-server')">Servidores <span class="help-icon"
+                                data-tooltip="Dica: Marque apenas os Executáveis/Arquivos que você vai atualizar/utilizar.">i</span></span>
                         <div class="list-box" id="clbServidores"
                             oncontextmenu="showListContextMenu(event, 'chk-server')"></div>
                     </div>
@@ -166,53 +148,7 @@
                 </div>
             </section>
 
-            <!-- ABA CONFIGURAÇÕES -->
-            <section id="configuracoes" class="tab-content">
-                <div class="glass-group" style="margin-bottom: 20px;">
-                    <span class="group-title">Preferências Gerais</span>
-                    <label class="custom-checkbox">
-                        <input type="checkbox" id="chkHabilitarTray">
-                        <span class="checkmark"></span>
-                        <span>Rodar em segundo plano (minimizar para bandeja)</span>
-                    </label>
-                </div>
-                <div class="panels-grid">
-                    <!-- Column 1 -->
-                    <div class="column-group">
-                        <span class="group-title-inline">Gerenciar Atualizadores/Bancos</span>
-                        <div class="list-box" id="cfgAtualizadores"
-                            oncontextmenu="showListContextMenu(event, 'cfg-del-bd')"></div>
-                        <button class="btn-secondary" style="margin-top:10px" onclick="addDatabaseRow()">Adicionar
-                            Atualizador</button>
-                    </div>
-                    <!-- Column 2 -->
-                    <div class="column-group">
-                        <span class="group-title-inline">Gerenciar Aplicações Clientes</span>
-                        <div class="list-box" id="cfgClientes"
-                            oncontextmenu="showListContextMenu(event, 'cfg-del-cli')"></div>
-                        <button class="btn-secondary" style="margin-top:10px" onclick="addClientRow()">Adicionar
-                            Exes</button>
-                    </div>
-                    <!-- Column 3 -->
-                    <div class="column-group">
-                        <span class="group-title-inline">Gerenciar Aplicações/Serviços Servidores</span>
-                        <div class="list-box" id="cfgServidores"
-                            oncontextmenu="showListContextMenu(event, 'cfg-del-srv')"></div>
-                        <div style="display:flex; gap:10px; margin-top:10px;">
-                            <button class="btn-secondary flex-1" onclick="addServerAutoDetect()">Adicionar
-                                Serviço</button>
-                            <button class="btn-secondary flex-1" onclick="addServerManual()">Adicionar Exe</button>
-                        </div>
-                    </div>
-                </div>
 
-                <div style="display: flex; justify-content: flex-end; gap: 15px; margin-top: 20px;">
-                    <button class="btn-secondary" onclick="removeSelectedConfigs()">Remover Selecionados</button>
-                    <button class="btn-secondary" onclick="cancelChanges()">Cancelar Alterações</button>
-                    <button class="btn-primary" onclick="saveConfig()">Salvar Alterações</button>
-                </div>
-                <span style="color:var(--warning)" id="lblUnsaved"></span>
-            </section>
 
             <!-- ABA SOBRE -->
             <section id="sobre" class="tab-content">
@@ -242,20 +178,22 @@
                         </tbody>
                     </table>
                     <br><br>
-                    <a href="#" class="external-link" onclick="window.api.openExternal('https://github.com/nicochet01/ExeBoard-3.0')">Repositório GitHub</a>
+                    <a href="#" class="external-link"
+                        onclick="window.api.openExternal('https://github.com/nicochet01/ExeBoard-3.0')">Repositório
+                        GitHub</a>
                 </div>
             </section>
         </main>
     </div>
 
     <!-- Modal Flutuante para Atualizadores -->
-    <div id="modalAtualizadores"
-        style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); z-index:9999; justify-content:center; align-items:center;">
-        <div class="glass-group" style="width: 400px; background:#1e1e2e;">
-            <span class="group-title">Abrir Atualizador (Process.Start)</span>
-            <div class="list-box" id="listAtualizadoresModal"
-                style="height:200px; margin-bottom:15px; margin-top: 10px;"></div>
-            <div style="display:flex; justify-content:flex-end; gap:10px;">
+    <div id="modalAtualizadores" class="modal-overlay" style="display:none;">
+        <div class="modal-content glass-group" style="width: 400px;">
+            <div class="modal-title">Abrir Atualizador</div>
+            <div class="modal-body">
+                <div class="list-box" id="listAtualizadoresModal" style="height:200px; margin-bottom:15px;"></div>
+            </div>
+            <div class="modal-footer">
                 <button class="btn-secondary"
                     onclick="document.getElementById('modalAtualizadores').style.display='none'">Cancelar</button>
                 <button class="btn-primary" onclick="execAtualizadorModal()">Executar</button>
@@ -291,7 +229,8 @@
             <div class="modal-title">Confirmar Executáveis</div>
             <div class="modal-body">
                 <p style="margin-bottom: 15px;">Detectamos os seguintes arquivos. Marque os que devem rodar como
-                    <b>Serviço Windows</b>:</p>
+                    <b>Serviço Windows</b>:
+                </p>
                 <div id="confirmExesList" class="service-scroll-list" style="height: 200px;"></div>
             </div>
             <div class="modal-footer">
@@ -312,7 +251,8 @@
                 </div>
             </div>
             <div class="modal-footer" style="justify-content: center;">
-                <button class="btn-secondary" onclick="document.getElementById('modalOriginChoice').style.display='none'">Cancelar</button>
+                <button class="btn-secondary"
+                    onclick="document.getElementById('modalOriginChoice').style.display='none'">Cancelar</button>
             </div>
         </div>
     </div>
@@ -335,7 +275,8 @@
                 </p>
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="document.getElementById('modalEditSubfolder').style.display='none'">Cancelar</button>
+                <button class="btn-secondary"
+                    onclick="document.getElementById('modalEditSubfolder').style.display='none'">Cancelar</button>
                 <button class="btn-primary" id="btnConfirmSubfolder">Confirmar</button>
             </div>
         </div>
@@ -353,10 +294,114 @@
         </div>
     </div>
 
+    <!-- Modal de Configurações (Item 1: Engrenagem) -->
+    <div id="modalSettings" class="modal-overlay" style="display:none;">
+        <div class="modal-content glass-group settings-modal-content">
+            <div class="modal-title" style="display:flex; justify-content:space-between; align-items:center;">
+                <span>⚙️ Configurações</span>
+                <button class="btn-icon-sm" id="btnCloseSettings" title="Fechar">✕</button>
+            </div>
+            <div class="modal-body" style="overflow-y:auto; max-height:65vh;">
+                <div class="glass-group" style="margin-bottom:20px;">
+                    <span class="group-title">Preferências Gerais</span>
+                    <label class="custom-checkbox">
+                        <input type="checkbox" id="chkHabilitarTray">
+                        <span class="checkmark"></span>
+                        <span>Rodar em segundo plano (minimizar para bandeja)</span>
+                    </label>
+                </div>
+                <div class="panels-grid settings-grid">
+                    <div class="column-group">
+                        <span class="group-title-inline">Gerenciar Atualizadores/Bancos</span>
+                        <div class="input-with-button-sm" style="margin-bottom: 8px;">
+                            <input type="text" id="txtDestinoAtualizadores" placeholder="Caminho Base..." readonly />
+                            <button class="btn-icon" id="btnLupaOnboarding1"
+                                onclick="selectFolderDest('txtDestinoAtualizadores')">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="11" cy="11" r="8"></circle>
+                                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="list-box" id="cfgAtualizadores"
+                            oncontextmenu="showListContextMenu(event, 'cfg-del-bd')"></div>
+                        <button class="btn-secondary" id="btnAddAtualizador" style="margin-top:10px"
+                            onclick="addDatabaseRow()">Adicionar
+                            Atualizador</button>
+                    </div>
+
+                    <div class="column-group">
+                        <span class="group-title-inline">Gerenciar Aplicações Clientes</span>
+                        <div class="input-with-button-sm" style="margin-bottom: 8px;">
+                            <input type="text" id="txtDestinoClientes" placeholder="Caminho Base..." readonly />
+                            <button class="btn-icon" id="btnLupaOnboarding2"
+                                onclick="selectFolderDest('txtDestinoClientes')">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="11" cy="11" r="8"></circle>
+                                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="list-box" id="cfgClientes" oncontextmenu="showListContextMenu(event, 'cfg-del-cli')">
+                        </div>
+                        <button class="btn-secondary" id="btnAddCliente" style="margin-top:10px"
+                            onclick="addClientRow()">Adicionar
+                            Exes</button>
+                    </div>
+
+                    <div class="column-group">
+                        <span class="group-title-inline">Gerenciar Aplicações/Serviços Servidores</span>
+                        <div class="input-with-button-sm" style="margin-bottom: 8px;">
+                            <input type="text" id="txtDestinoServidores" placeholder="Caminho Base..." readonly />
+                            <button class="btn-icon" id="btnLupaOnboarding3"
+                                onclick="selectFolderDest('txtDestinoServidores')">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="11" cy="11" r="8"></circle>
+                                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="list-box" id="cfgServidores"
+                            oncontextmenu="showListContextMenu(event, 'cfg-del-srv')"></div>
+                        <div style="display:flex; gap:10px; margin-top:10px;">
+                            <button class="btn-secondary flex-1" id="btnAddServidor"
+                                onclick="addServerAutoDetect()">Adicionar
+                                Serviço</button>
+                            <button class="btn-secondary flex-1" id="btnAddExeServidor"
+                                onclick="addServerManual()">Adicionar Exe</button>
+                        </div>
+                    </div>
+                </div>
+                <div style="display:flex; justify-content:flex-end; gap:15px; margin-top:20px;">
+                    <button class="btn-secondary" onclick="removeSelectedConfigs()">Remover Selecionados</button>
+                    <button class="btn-secondary" onclick="cancelChanges()">Cancelar Alterações</button>
+                    <button class="btn-primary" id="btnSaveConfig" onclick="saveConfig()">Salvar Alterações</button>
+                </div>
+                <span style="color:var(--warning)" id="lblUnsaved"></span>
+            </div>
+        </div>
+    </div>
+
     <!-- Menu de Contexto Customizado -->
     <div id="listContextMenu" class="context-menu" style="display:none;">
         <div class="context-item" onclick="bulkCheck(true)">Marcar Todos</div>
         <div class="context-item" onclick="bulkCheck(false)">Desmarcar Todos</div>
+    </div>
+
+    <!-- Overlay de Primeira Vez (Onboarding) -->
+    <div class="onboarding-blocker"></div>
+    <div id="onboardingOverlay" class="onboarding-overlay">
+        <div class="onboarding-backdrop"></div>
+        <div id="onboardingSpotlight" class="onboarding-spotlight">
+            <div id="onboardingArrow" class="onboarding-arrow">↑</div>
+            <div class="onboarding-card">
+                <div id="onboardingTitle" class="onboarding-title">Bem-vindo!</div>
+                <div id="onboardingText" class="onboarding-text">Conteúdo do tutorial...</div>
+            </div>
+        </div>
     </div>
 
     <script src="renderer.js"></script>

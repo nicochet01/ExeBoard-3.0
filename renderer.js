@@ -31,6 +31,32 @@ const LOG_COLORS = {
     error: '#f38ba8' // Red
 };
 
+// Escuta o aviso do sistema de que o app já estava aberto
+if (window.api && window.api.onInstanceWarning) {
+    window.api.onInstanceWarning(() => {
+        const modal = document.getElementById('customModal');
+        const title = document.getElementById('modalTitle');
+        const body = document.getElementById('modalBody');
+        const btnOk = document.getElementById('modalBtnOk');
+        const btnCancel = document.getElementById('modalBtnCancel');
+
+        // Configura os textos do seu modal existente
+        title.innerText = '🚀 Aviso do Sistema';
+        body.innerHTML = '<b>O ExeBoard já está aberto!</b><br><br>O aplicativo já está em execução no seu computador. Esta janela foi trazida para a frente.';
+        
+        // Esconde o botão cancelar, pois é só um aviso
+        if (btnCancel) btnCancel.style.display = 'none';
+        
+        // Exibe o modal
+        modal.style.display = 'flex';
+
+        // Fecha o modal ao clicar em Entendido
+        btnOk.onclick = () => {
+            modal.style.display = 'none';
+        };
+    });
+}
+
 // ==== Logs ====
 function appendLog(data, colorParam, targetParam) {
     let msg, color, target;
@@ -199,6 +225,11 @@ function renderLists() {
     document.querySelectorAll('.btn-edit-server').forEach(btn => {
         btn.onclick = () => window.editSubfolder('server', parseInt(btn.dataset.index));
     });
+
+    // Tutorial Progression: Check list lengths
+    if (tutorialStep === 5 && bdList.length >= 1) updateTutorial(6);
+    else if (tutorialStep === 6 && clientList.length >= 1) updateTutorial(7);
+    else if (tutorialStep === 7 && serverList.length >= 1) updateTutorial(8);
 }
 
 window.editSubfolder = (type, index, onFinish) => {
@@ -312,6 +343,15 @@ async function init() {
     }
 
     appendLog('CopiarExes aberto', '#a6adc8', 'copiar');
+
+    // Carregar tema salvo
+    const savedTheme = fullConfig.GERAL?.TEMA || 'dark';
+    applyTheme(savedTheme);
+
+    // Detecção de primeira vez (nenhum exe/serviço configurado)
+    if (clientList.length === 0 && serverList.length === 0 && bdList.length === 0) {
+        updateTutorial(1);
+    }
 }
 
 // ==== Polling & Aba Servidores ====
@@ -414,9 +454,6 @@ document.getElementById('btnCopiarDados').addEventListener('click', async () => 
     btn.textContent = "Cancelar Cópia";
     btn.style.background = LOG_COLORS.error;
     
-    // UI Lock: Bloqueia botões e o acesso à Aba de Configurações
-    document.querySelector('[data-tab="configuracoes"]').style.display = 'none';
-    
     await window.saveConfig(); 
 
     const automacao = document.getElementById('cbModoAutomacao').checked;
@@ -429,6 +466,58 @@ document.getElementById('btnCopiarDados').addEventListener('click', async () => 
     document.querySelectorAll('.chk-client:checked').forEach(c => reqs.push({destDir: document.getElementById('txtDestinoClientes').value, type:'client', itemData: JSON.parse(c.value)}));
     document.querySelectorAll('.chk-server:checked').forEach(c => reqs.push({destDir: document.getElementById('txtDestinoServidores').value, type:'server', itemData: JSON.parse(c.value)}));
     document.querySelectorAll('.chk-bd:checked').forEach(c => reqs.push({destDir: document.getElementById('txtDestinoAtualizadores').value, type:'bd', itemData: { Nome: c.value }}));
+
+    // === ITEM 3: Validação Inteligente da Branch ===
+    const fileNamesToCheck = [];
+    reqs.forEach(r => {
+        if (r.type === 'client' || r.type === 'server') {
+            let name = r.itemData.Nome;
+            if (!name.toLowerCase().endsWith('.exe')) name += '.exe';
+            fileNamesToCheck.push(name);
+        }
+    });
+
+    appendLog('Validando pasta da Branch...', LOG_COLORS.info, 'copiar');
+    const validation = await window.api.validateBranch({ branchPath: baseBranch, fileNames: fileNamesToCheck });
+    
+    if (!validation.valid) {
+        if (validation.scenario === 'not_found') {
+            showCustomModal(
+                "Pasta não encontrada",
+                "A pasta da Branch não foi encontrada. Verifique se o caminho está correto ou se o build da tarefa já foi finalizado.",
+                "error"
+            );
+        } else if (validation.scenario === 'missing_files') {
+            showCustomModal(
+                "Arquivos não encontrados",
+                `Atenção: Os seguintes arquivos selecionados não foram encontrados na Branch:<br><br><ul style="margin-left:20px">${validation.missing.map(f => '<li>' + f + '</li>').join('')}</ul>`,
+                "error",
+                true
+            );
+        } else {
+            showCustomModal("Erro de Validação", validation.msg || "Erro desconhecido ao validar a Branch.", "error");
+        }
+        isCopying = false;
+        toggleUILock(false);
+        btn.textContent = "Copiar Dados";
+        btn.style.background = 'var(--accent)';
+        return;
+    }
+    appendLog('Branch validada com sucesso.', LOG_COLORS.success, 'copiar');
+
+    // === ITEM 2: Fechar Clientes antes da cópia ===
+    const checkedClients = Array.from(document.querySelectorAll('.chk-client:checked')).map(c => JSON.parse(c.value));
+    if (checkedClients.length > 0) {
+        appendLog('Encerrando aplicativos clientes selecionados...', LOG_COLORS.info, 'copiar');
+        for (const cli of checkedClients) {
+            let procName = cli.Nome;
+            if (!procName.toLowerCase().endsWith('.exe')) procName += '.exe';
+            const result = await window.api.killProcess(procName);
+            if (result.killed) {
+                appendLog(`Processo ${procName} encerrado.`, LOG_COLORS.success, 'copiar');
+            }
+        }
+    }
 
     const checkedServers = Array.from(document.querySelectorAll('.chk-server:checked')).map(c=>JSON.parse(c.value));
     
@@ -471,7 +560,6 @@ document.getElementById('btnCopiarDados').addEventListener('click', async () => 
     toggleUILock(false);
     btn.textContent = "Copiar Dados";
     btn.style.background = 'var(--accent)';
-    document.querySelector('[data-tab="configuracoes"]').style.display = 'block';
 });
 
 // Helper: Trava de Interface
@@ -504,20 +592,16 @@ function toggleUILock(lock) {
 document.getElementById('btnBuscarPath').addEventListener('click', async () => {
     let current = document.getElementById('edtCaminhoBranch').value;
     const p = await window.api.openFolder(current);
-    if(p) { document.getElementById('edtCaminhoBranch').value = p; markUnsaved(); }
+    if(p) { 
+        document.getElementById('edtCaminhoBranch').value = p; 
+        markUnsaved(); 
+        // Finalização do Tutorial no Passo 9
+        if (typeof tutorialStep !== 'undefined' && tutorialStep === 9) updateTutorial(0);
+    }
 });
 
-window.selectFolderDest = async (inputId) => {
-    let def = document.getElementById(inputId).value;
-    
-    // Se estiver vazio ou contiver o placeholder, limpa para abrir na raiz
-    if (!def || def.startsWith('Informe')) {
-        def = '';
-    }
 
-    const f = await window.api.openFolder(def);
-    if(f) { document.getElementById(inputId).value = f; markUnsaved(); }
-};
+
 
 window.openAtualizadoresModal = () => {
     const lst = document.getElementById('listAtualizadoresModal');
@@ -539,8 +623,34 @@ window.execAtualizadorModal = () => {
     document.getElementById('modalAtualizadores').style.display = 'none';
 };
 
+// Helper: Seleção de Pasta de Destino (Configurações)
+window.selectFolderDest = async (inputId) => {
+    let current = document.getElementById(inputId).value;
+    const p = await window.api.openFolder(current);
+    if (p) {
+        document.getElementById(inputId).value = p;
+        markUnsaved();
+
+        // Progressão do Tutorial
+        if (typeof tutorialStep !== 'undefined') {
+            if (tutorialStep === 2 && inputId === 'txtDestinoAtualizadores') updateTutorial(3);
+            else if (tutorialStep === 3 && inputId === 'txtDestinoClientes') updateTutorial(4);
+            else if (tutorialStep === 4 && inputId === 'txtDestinoServidores') updateTutorial(5);
+        }
+    }
+};
+
 // Helper: Escolha de Origem
 async function requestFilesWithOrigin(type) {
+    // Atalho Inteligente para o Tutorial (Regra 3 do Documento)
+    if (typeof tutorialStep !== 'undefined' && tutorialStep > 0) {
+        let localPath = "";
+        if (type === 'client') localPath = document.getElementById('txtDestinoClientes').value;
+        if (type === 'server') localPath = document.getElementById('txtDestinoServidores').value;
+        const files = await window.api.openMultiFiles(localPath);
+        return { files, origin: 'local' };
+    }
+
     return new Promise((resolve) => {
         const modal = document.getElementById('modalOriginChoice');
         const btnBranch = document.getElementById('btnOriginBranch');
@@ -576,9 +686,14 @@ async function requestFilesWithOrigin(type) {
 function getRelativeSubfolder(fullPath, rootPath) {
     if (!fullPath || !rootPath) return '';
     
-    // Normaliza caminhos: lowercase, barras invertidas e remove barras no final
+    // Normaliza caminhos
     let f = fullPath.replace(/\//g, '\\').replace(/\\+$/, '');
     let r = rootPath.replace(/\//g, '\\').replace(/\\+$/, '');
+
+    // Se for um arquivo (exe), remove o nome do arquivo para pegar só a pasta
+    if (f.toLowerCase().endsWith('.exe')) {
+        f = f.substring(0, f.lastIndexOf('\\'));
+    }
     
     let fLow = f.toLowerCase();
     let rLow = r.toLowerCase();
@@ -595,6 +710,7 @@ function getRelativeSubfolder(fullPath, rootPath) {
     }
     return '';
 }
+
 
 // Helper: Dedução Lógica (Efeito Manada)
 function getMostFrequentSubfolder(list) {
@@ -879,15 +995,22 @@ window.saveConfig = async () => {
     // Geral
     if(!fullConfig.GERAL) fullConfig.GERAL = {};
     fullConfig.GERAL.HABILITAR_TRAY = document.getElementById('chkHabilitarTray').checked ? '1' : '0';
+    fullConfig.GERAL.TEMA = document.body.classList.contains('light-theme') ? 'light' : 'dark';
 
     await window.api.saveIni(fullConfig);
     unsavedChanges = false;
     document.getElementById('lblUnsaved').textContent = '(Salvo com Sucesso!)';
     setTimeout(()=>{document.getElementById('lblUnsaved').textContent=''}, 2000);
+
+    // Avançar para o último passo (Branch) se estiver no tutorial
+    if (tutorialStep === 8) {
+        document.getElementById('modalSettings').style.display = 'none';
+        updateTutorial(9);
+    }
 }
 
 // ==== Custom Modals e UI Utilities ====
-window.showCustomModal = (title, text, type = 'info') => {
+window.showCustomModal = (title, text, type = 'info', useHtml = false) => {
     const modal = document.getElementById('customModal');
     const titleEl = document.getElementById('modalTitle');
     const bodyEl = document.getElementById('modalBody');
@@ -895,7 +1018,8 @@ window.showCustomModal = (title, text, type = 'info') => {
     const btnCancel = document.getElementById('modalBtnCancel');
 
     titleEl.textContent = title;
-    bodyEl.textContent = text;
+    if (useHtml) bodyEl.innerHTML = text;
+    else bodyEl.textContent = text;
     btnCancel.style.display = 'none';
     btnOk.textContent = 'Entendido';
     
@@ -1023,9 +1147,195 @@ document.addEventListener('click', () => {
     document.getElementById('listContextMenu').style.display = 'none';
 });
 
+// ==== Tema ====
+function applyTheme(theme) {
+    if (theme === 'light') {
+        document.body.classList.add('light-theme');
+        document.getElementById('btnToggleTheme').textContent = '☀️';
+    } else {
+        document.body.classList.remove('light-theme');
+        document.getElementById('btnToggleTheme').textContent = '🌙';
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     init();
     if(document.getElementById('chkHabilitarTray')) {
         document.getElementById('chkHabilitarTray').onchange = markUnsaved;
     }
+
+    // Engrenagem abre modal de Configurações
+    document.getElementById('btnOpenSettings').addEventListener('click', () => {
+        document.getElementById('modalSettings').style.display = 'flex';
+        if (tutorialStep === 1) updateTutorial(2);
+    });
+    document.getElementById('btnCloseSettings').addEventListener('click', () => {
+        document.getElementById('modalSettings').style.display = 'none';
+        // Se o tutorial estiver ativo e o usuário fechar o modal, precisamos decidir o que fazer.
+        // O usuário pediu "guie o usuário de forma obrigatória", então talvez resetar para o passo 1 se fechar?
+        // Mas por enquanto vamos apenas esconder o modal.
+    });
+
+    // Theme Toggle (Dark / Light)
+    document.getElementById('btnToggleTheme').addEventListener('click', () => {
+        const isLight = document.body.classList.toggle('light-theme');
+        document.getElementById('btnToggleTheme').textContent = isLight ? '☀️' : '🌙';
+        if(!fullConfig.GERAL) fullConfig.GERAL = {};
+        fullConfig.GERAL.TEMA = isLight ? 'light' : 'dark';
+        window.api.saveIni(fullConfig);
+    });
+
 });
+
+// ==== Interactive Tutorial (Onboarding) ====
+let tutorialStep = 0;
+
+function updateTutorial(step) {
+    tutorialStep = step;
+    const title = document.getElementById('onboardingTitle');
+    const text = document.getElementById('onboardingText');
+    const spotlight = document.getElementById('onboardingSpotlight');
+    const arrow = document.getElementById('onboardingArrow');
+
+    // Remove previous highlights
+    document.querySelectorAll('.spotlight-highlight').forEach(el => el.classList.remove('spotlight-highlight'));
+    
+    if (step === 0) {
+        document.body.classList.remove('onboarding-active');
+        // Unlock inputs
+        document.getElementById('txtDestinoAtualizadores').readOnly = false;
+        document.getElementById('txtDestinoClientes').readOnly = false;
+        document.getElementById('txtDestinoServidores').readOnly = false;
+        document.getElementById('edtCaminhoBranch').readOnly = false;
+        // Reset modal z-index override
+        document.querySelectorAll('.modal-overlay').forEach(m => m.style.zIndex = '');
+        return;
+    }
+
+    if (step === 2) {
+        // Pequeno delay para garantir que o modal abriu e os elementos têm posição
+        setTimeout(() => updateTutorialLogic(step), 150);
+    } else {
+        updateTutorialLogic(step);
+    }
+}
+
+function updateTutorialLogic(step) {
+    const title = document.getElementById('onboardingTitle');
+    const text = document.getElementById('onboardingText');
+    const spotlight = document.getElementById('onboardingSpotlight');
+    const arrow = document.getElementById('onboardingArrow');
+
+    document.body.classList.add('onboarding-active');
+
+    let targetId = '';
+    let arrowChar = '↑';
+    let position = 'bottom'; 
+
+    switch(step) {
+        case 1:
+            targetId = 'btnOpenSettings';
+            title.innerText = '👋 Bem-vindo ao ExeBoard!';
+            text.innerHTML = 'Esta é sua primeira vez aqui. Clique na ⚙️ <b>Configurações</b> acima para começar a configuração.';
+            arrowChar = '↑';
+            position = 'bottom-right';
+            break;
+        case 2:
+            targetId = 'btnLupaOnboarding1';
+            title.innerText = 'Passo 1/6: Caminhos Base';
+            text.innerHTML = 'Lembre-se de sempre selecionar o diretório raiz das suas pastas (Ex: C:\\Pasta\\Aplicacoes). Clique na lupa e selecione a pasta dos <b>Atualizadores/Bancos</b>.';
+            arrowChar = '↑';
+            position = 'bottom-left';
+            // Lock inputs
+            document.getElementById('txtDestinoAtualizadores').readOnly = true;
+            document.getElementById('txtDestinoClientes').readOnly = true;
+            document.getElementById('txtDestinoServidores').readOnly = true;
+            document.getElementById('edtCaminhoBranch').readOnly = true;
+            break;
+        case 3:
+            targetId = 'btnLupaOnboarding2';
+            title.innerText = 'Passo 2/6: Excelente!';
+            text.innerHTML = 'Agora selecione a pasta base das aplicações <b>Clientes</b>.';
+            arrowChar = '↑';
+            position = 'bottom-center';
+            break;
+        case 4:
+            targetId = 'btnLupaOnboarding3';
+            title.innerText = 'Passo 3/6: Quase lá...';
+            text.innerHTML = 'Por fim, selecione a pasta base onde ficam os <b>Servidores</b>.';
+            arrowChar = '↑';
+            position = 'bottom-right';
+            break;
+        case 5:
+            targetId = 'btnAddAtualizador';
+            title.innerText = 'Passo 4/6: Itens Obrigatórios';
+            text.innerHTML = 'Muito bem. Agora adicione pelo menos um <b>Atualizador/Banco</b> na sua lista.';
+            arrowChar = '↑';
+            position = 'bottom-left';
+            break;
+        case 6:
+            targetId = 'btnAddCliente';
+            title.innerText = 'Passo 5/6: Quase terminando';
+            text.innerHTML = 'Agora adicione pelo menos um <b>Executável Cliente</b>.';
+            arrowChar = '↑';
+            position = 'bottom-center';
+            break;
+        case 7:
+            targetId = 'btnAddExeServidor';
+            title.innerText = 'Passo 6/6: Último item';
+            text.innerHTML = 'Para terminar, adicione pelo menos um <b>Executável Servidor</b>.';
+            arrowChar = '↑';
+            position = 'bottom-right';
+            break;
+        case 8:
+            targetId = 'btnSaveConfig';
+            title.innerText = 'Tudo pronto! 🎉';
+            text.innerHTML = 'Sua configuração base foi criada com sucesso. Clique em <b>Salvar</b> para finalizar.';
+            arrowChar = '↓';
+            position = 'top-right';
+            break;
+        case 9:
+            targetId = 'btnBuscarPath';
+            title.innerText = 'Último passo! 💡';
+            text.innerHTML = 'Para definir o caminho da sua Branch, certifique-se de que o Google Drive está instalado e sincronizado. Clique no botão <b>Procurar</b> em destaque e selecione a pasta da sua tarefa.';
+            arrowChar = '↑';
+            position = 'bottom-right';
+            break;
+    }
+
+    const target = document.getElementById(targetId);
+    if (target) {
+        target.classList.add('spotlight-highlight');
+        const rect = target.getBoundingClientRect();
+        
+        spotlight.style.flexDirection = 'column';
+        if (position.startsWith('bottom')) {
+            spotlight.style.top = (rect.bottom + 15) + 'px';
+            spotlight.style.bottom = 'auto';
+            arrow.innerText = '↑';
+            if (position.endsWith('right')) {
+                spotlight.style.left = 'auto';
+                spotlight.style.right = (window.innerWidth - rect.right) + 'px';
+                spotlight.style.alignItems = 'flex-end';
+            } else if (position.endsWith('left')) {
+                spotlight.style.right = 'auto';
+                spotlight.style.left = rect.left + 'px';
+                spotlight.style.alignItems = 'flex-start';
+            } else {
+                spotlight.style.left = (rect.left + rect.width/2 - 170) + 'px';
+                spotlight.style.right = 'auto';
+                spotlight.style.alignItems = 'center';
+            }
+        } else if (position.startsWith('top')) {
+            spotlight.style.top = 'auto';
+            spotlight.style.bottom = (window.innerHeight - rect.top + 15) + 'px';
+            arrow.innerText = '↓';
+            spotlight.style.flexDirection = 'column-reverse';
+            if (position.endsWith('right')) {
+                spotlight.style.left = 'auto';
+                spotlight.style.right = (window.innerWidth - rect.right) + 'px';
+                spotlight.style.alignItems = 'flex-end';
+            }
+        }
+    }
+}

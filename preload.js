@@ -25,6 +25,13 @@ contextBridge.exposeInMainWorld('api', {
     executarCopia: (fila) => ipcRenderer.invoke('execute-copy-files', fila),
     cancelarCopia: () => ipcRenderer.send('cancel-copy'),
 
+    // Item 2 & 3: Kill processes e Validação de Branch
+    killProcess: (name) => ipcRenderer.invoke('kill-process', name),
+    validateBranch: (data) => ipcRenderer.invoke('validate-branch', data),
+
     // Logs
-    onLogMessage: (callback) => ipcRenderer.on('log-message', (_event, data) => callback(data))
+    onLogMessage: (callback) => ipcRenderer.on('log-message', (_event, data) => callback(data)),
+
+    // Mensagem de aviso
+    onInstanceWarning: (callback) => ipcRenderer.on('show-instance-warning', callback),
 });

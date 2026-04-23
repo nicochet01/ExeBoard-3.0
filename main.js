@@ -22,6 +22,26 @@ const COPY_BUFFER_SIZE = 1048576; // 1MB
 const MAX_RETRIES = 5;
 const RETRY_DELAY_MS = 2000;
 
+// ==== TRAVA DE INSTÂNCIA ÚNICA ====
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+    // Se o app já estiver aberto, a nova tentativa simplesmente morre aqui
+    app.quit();
+} else {
+    // O aplicativo original que já estava rodando "escuta" a nova tentativa
+    app.on('second-instance', (event, commandLine, workingDirectory) => {
+        if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+
+            // Manda um sinal para o frontend (index.html) exibir o modal
+            mainWindow.webContents.send('show-instance-warning');
+        }
+    });
+}
+
 function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1100,
@@ -38,6 +58,9 @@ function createWindow() {
     });
 
     mainWindow.loadFile('index.html');
+
+    // ITEM 4: Abrir maximizado
+    mainWindow.maximize();
 
     // COMPORTAMENTO DE MINIMIZAR: Vai para bandeja
     mainWindow.on('minimize', (event) => {
@@ -671,6 +694,53 @@ ipcMain.handle('execute-external', async (event, exePath) => {
 
 ipcMain.handle('open-external-url', async (event, url) => {
     shell.openExternal(url);
+});
+
+// ==== ITEM 2: Fechar processos clientes antes da cópia ====
+ipcMain.handle('kill-process', async (event, processName) => {
+    return new Promise((resolve) => {
+        const name = processName.endsWith('.exe') ? processName : processName + '.exe';
+        exec(`taskkill /F /IM "${name}"`, (err, stdout, stderr) => {
+            if (err) {
+                resolve({ killed: false, msg: (stderr || err.message).trim() });
+            } else {
+                resolve({ killed: true, msg: (stdout || '').trim() });
+            }
+        });
+    });
+});
+
+// ==== ITEM 3: Validação inteligente da Branch ====
+ipcMain.handle('validate-branch', async (event, { branchPath, fileNames }) => {
+    try {
+        const exists = await fs.pathExists(branchPath);
+        if (!exists) {
+            return { valid: false, scenario: 'not_found' };
+        }
+
+        if (!fileNames || fileNames.length === 0) {
+            return { valid: true };
+        }
+
+        const { fileMap } = await indexarDiretorio(branchPath);
+
+        const missing = [];
+        for (const name of fileNames) {
+            let searchName = name.toLowerCase();
+            if (!searchName.endsWith('.exe')) searchName += '.exe';
+            if (!fileMap.has(searchName)) {
+                missing.push(name);
+            }
+        }
+
+        if (missing.length > 0) {
+            return { valid: false, scenario: 'missing_files', missing };
+        }
+
+        return { valid: true };
+    } catch (err) {
+        return { valid: false, scenario: 'error', msg: err.message };
+    }
 });
 
 // Impede que o app feche se houver um erro inesperado em alguma operação de arquivo
