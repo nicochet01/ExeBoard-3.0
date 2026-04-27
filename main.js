@@ -48,6 +48,7 @@ function createWindow() {
         height: 800,
         minWidth: 1000,
         minHeight: 700,
+        show: false, // Inicia oculta para configurar a janela antes de exibir
         autoHideMenuBar: true, // Esconde o menu superior (File, Edit, View...)
         icon: path.join(__dirname, 'assets', 'LOGO_EXEBOARD.ico'),
         webPreferences: {
@@ -59,10 +60,15 @@ function createWindow() {
 
     mainWindow.loadFile('index.html');
 
-    // ITEM 4: Abrir maximizado
-    mainWindow.maximize();
+    // Sempre garantir que inicie visível, centrada e focada, ignorando minimização acidental de atalhos
+    mainWindow.once('ready-to-show', () => {
+        mainWindow.center();
+        mainWindow.show();
+        mainWindow.maximize();
+        mainWindow.focus();
+    });
 
-    // COMPORTAMENTO DE MINIMIZAR: Vai para bandeja
+    // COMPORTAMENTO DE MINIMIZAR: Vai para bandeja apenas quando o evento de minimização de fato ocorrer
     mainWindow.on('minimize', (event) => {
         const trayEnabled = configCache.GERAL && configCache.GERAL.HABILITAR_TRAY === '1';
         if (trayEnabled) {

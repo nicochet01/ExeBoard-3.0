@@ -1002,12 +1002,38 @@ window.saveConfig = async () => {
     document.getElementById('lblUnsaved').textContent = '(Salvo com Sucesso!)';
     setTimeout(()=>{document.getElementById('lblUnsaved').textContent=''}, 2000);
 
-    // Avançar para o último passo (Branch) se estiver no tutorial
+    // Intercepção do Tutorial (Passo 8 -> 9): Verificação do Google Drive
     if (tutorialStep === 8) {
         document.getElementById('modalSettings').style.display = 'none';
-        updateTutorial(9);
+        
+        const modal = document.getElementById('customModal');
+        const titleEl = document.getElementById('modalTitle');
+        const bodyEl = document.getElementById('modalBody');
+        const btnOk = document.getElementById('modalBtnOk');
+        const btnCancel = document.getElementById('modalBtnCancel');
+
+        titleEl.textContent = "Sincronização Necessária";
+        titleEl.style.color = 'var(--accent)';
+        bodyEl.textContent = "Você já possui o aplicativo do Google Drive instalado e sincronizado neste computador?";
+        
+        btnOk.textContent = "Sim";
+        btnCancel.textContent = "Não";
+        btnCancel.style.display = 'block';
+        modal.style.display = 'flex';
+
+        btnOk.onclick = () => {
+            modal.style.display = 'none';
+            updateTutorial(9);
+        };
+
+        btnCancel.onclick = () => {
+            modal.style.display = 'none';
+            window.api.executeExternal("https://www.google.com/drive/download/");
+            updateTutorial(0); // Encerra o tutorial
+        };
     }
 }
+
 
 // ==== Custom Modals e UI Utilities ====
 window.showCustomModal = (title, text, type = 'info', useHtml = false) => {
