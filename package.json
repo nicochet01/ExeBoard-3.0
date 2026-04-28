@@ -1,13 +1,13 @@
 {
   "name": "exeboard",
   "productName": "ExeBoard",
-  "version": "3.0.0",
+  "version": "3.0.3",
   "description": "",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder",
-    "postdist": "powershell -Command \"Remove-Item -Recurse -Force dist\\win-unpacked; Remove-Item dist\\*.yml; Remove-Item dist\\*.yaml\"",
+    "postdist": "powershell -Command \"Remove-Item -Recurse -Force dist\\win-unpacked; Remove-Item dist\\builder-*.yml, dist\\builder-*.yaml -ErrorAction SilentlyContinue\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -20,6 +20,7 @@
     "electron-reload": "^2.0.0-alpha.1"
   },
   "dependencies": {
+    "electron-updater": "^6.8.3",
     "fs-extra": "^11.3.4",
     "ini": "^6.0.0",
     "ts-node": "^10.9.2"
@@ -34,14 +35,24 @@
       "**/*",
       "assets/*"
     ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "nicochet01",
+        "repo": "ExeBoard-3.0"
+      }
+    ],
     "win": {
-      "target": "portable",
+      "target": "nsis",
       "artifactName": "ExeBoard.${ext}",
       "icon": "assets/LOGO_EXEBOARD.ico",
       "requestedExecutionLevel": "requireAdministrator"
     },
-    "portable": {
-      "requestExecutionLevel": "admin"
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
   }
 }

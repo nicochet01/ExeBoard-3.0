@@ -34,4 +34,8 @@ contextBridge.exposeInMainWorld('api', {
 
     // Mensagem de aviso
     onInstanceWarning: (callback) => ipcRenderer.on('show-instance-warning', callback),
+
+    // Auto Updater
+    onUpdateDownloaded: (callback) => ipcRenderer.on('update-downloaded', (_event, data) => callback(data)),
+    restartApp: () => ipcRenderer.invoke('restart-app'),
 });

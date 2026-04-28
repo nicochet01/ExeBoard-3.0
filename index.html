@@ -404,6 +404,20 @@
         </div>
     </div>
 
+    <!-- Modal de Auto-Update -->
+    <div id="modalAutoUpdate" class="modal-overlay" style="display:none; z-index: 9999;">
+        <div class="modal-content glass-group" style="width: 400px; text-align: center;">
+            <div class="modal-title">Nova Atualização Disponível!</div>
+            <div class="modal-body">
+                <p style="margin-bottom: 20px;">Uma nova versão do ExeBoard foi baixada com sucesso. A instalação requer o reinício da aplicação.</p>
+            </div>
+            <div class="modal-footer" style="justify-content: center; gap: 15px;">
+                <button class="btn-secondary" onclick="document.getElementById('modalAutoUpdate').style.display='none'">Mais Tarde</button>
+                <button class="btn-primary" onclick="window.api.restartApp()">Reiniciar e Atualizar</button>
+            </div>
+        </div>
+    </div>
+
     <script src="renderer.js"></script>
 </body>
 

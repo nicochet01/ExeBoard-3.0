@@ -57,6 +57,21 @@ if (window.api && window.api.onInstanceWarning) {
     });
 }
 
+// Escuta evento de Atualização Baixada
+if (window.api && window.api.onUpdateDownloaded) {
+    window.api.onUpdateDownloaded((info) => {
+        const modalUpdate = document.getElementById('modalAutoUpdate');
+        if (modalUpdate) {
+            // Atualiza o texto do modal com as versões (UX Dinâmica)
+            const bodyP = modalUpdate.querySelector('.modal-body p');
+            if (bodyP && info) {
+                bodyP.innerHTML = `Uma nova versão foi baixada com sucesso (de <b>v${info.currentVersion}</b> para <b>v${info.newVersion}</b>).<br><br>Deseja reiniciar a aplicação agora para aplicar a atualização?`;
+            }
+            modalUpdate.style.display = 'flex';
+        }
+    });
+}
+
 // ==== Logs ====
 function appendLog(data, colorParam, targetParam) {
     let msg, color, target;

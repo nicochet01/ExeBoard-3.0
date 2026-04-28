@@ -4,7 +4,7 @@ const fs = require('fs-extra');
 const { createReadStream, createWriteStream } = require('fs');
 const ini = require('ini');
 const { exec, execSync } = require('child_process');
-
+const { autoUpdater } = require('electron-updater');
 let mainWindow;
 let tray;
 
@@ -66,6 +66,9 @@ function createWindow() {
         mainWindow.show();
         mainWindow.maximize();
         mainWindow.focus();
+
+        // Verifica atualizações silenciosamente
+        autoUpdater.checkForUpdatesAndNotify();
     });
 
     // COMPORTAMENTO DE MINIMIZAR: Vai para bandeja apenas quando o evento de minimização de fato ocorrer
@@ -148,6 +151,34 @@ app.whenReady().then(async () => {
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
+});
+
+// ==== AUTO UPDATER ====
+autoUpdater.on('update-downloaded', (info) => {
+    if (mainWindow) {
+        mainWindow.webContents.send('update-downloaded', {
+            currentVersion: app.getVersion(),
+            newVersion: info.version
+        });
+    }
+});
+
+ipcMain.handle('restart-app', () => {
+    // Garante o encerramento completo para o NSIS poder sobrescrever os arquivos
+    app.isQuiting = true; 
+    
+    if (tray) {
+        tray.destroy();
+        tray = null;
+    }
+
+    // Fecha todas as janelas antes de instalar
+    BrowserWindow.getAllWindows().forEach(win => {
+        if (!win.isDestroyed()) win.close();
+    });
+
+    // Chama a instalação (isSilent: false para mostrar o UAC se necessário, isForceRunAfter: true)
+    autoUpdater.quitAndInstall(false, true);
 });
 
 app.on('window-all-closed', () => {
