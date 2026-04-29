@@ -153,7 +153,7 @@
             <!-- ABA SOBRE -->
             <section id="sobre" class="tab-content">
                 <div class="glass-group">
-                    <span class="group-title">Sobre o Projeto</span>
+                    <span class="group-title">Versão do ExeBoard - <span id="app-version-text"></span></span>
                     <br>
                     <table class="styled-table" style="width: 60%;">
                         <thead>
@@ -344,7 +344,8 @@
                                 </svg>
                             </button>
                         </div>
-                        <div class="list-box" id="cfgClientes" oncontextmenu="showListContextMenu(event, 'cfg-del-cli')">
+                        <div class="list-box" id="cfgClientes"
+                            oncontextmenu="showListContextMenu(event, 'cfg-del-cli')">
                         </div>
                         <button class="btn-secondary" id="btnAddCliente" style="margin-top:10px"
                             onclick="addClientRow()">Adicionar
@@ -409,10 +410,12 @@
         <div class="modal-content glass-group" style="width: 400px; text-align: center;">
             <div class="modal-title">Nova Atualização Disponível!</div>
             <div class="modal-body">
-                <p style="margin-bottom: 20px;">Uma nova versão do ExeBoard foi baixada com sucesso. A instalação requer o reinício da aplicação.</p>
+                <p style="margin-bottom: 20px;">Uma nova versão do ExeBoard foi baixada com sucesso. A instalação requer
+                    o reinício da aplicação.</p>
             </div>
             <div class="modal-footer" style="justify-content: center; gap: 15px;">
-                <button class="btn-secondary" onclick="document.getElementById('modalAutoUpdate').style.display='none'">Mais Tarde</button>
+                <button class="btn-secondary"
+                    onclick="document.getElementById('modalAutoUpdate').style.display='none'">Mais Tarde</button>
                 <button class="btn-primary" onclick="window.api.restartApp()">Reiniciar e Atualizar</button>
             </div>
         </div>

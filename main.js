@@ -5,6 +5,17 @@ const { createReadStream, createWriteStream } = require('fs');
 const ini = require('ini');
 const { exec, execSync } = require('child_process');
 const { autoUpdater } = require('electron-updater');
+const log = require('electron-log');
+
+// Configuração do Electron Log (Caixa Preta)
+log.transports.file.level = 'info';
+log.transports.file.resolvePathFn = () => path.join(app.getPath('userData'), 'logs', 'main.log');
+Object.assign(console, log.functions); // Hook global do console
+
+log.info('=== ExeBoard Iniciado ===');
+log.info('Versão:', app.getVersion());
+log.info('Caminho Executável:', app.getPath('exe'));
+
 let mainWindow;
 let tray;
 
@@ -21,6 +32,9 @@ let configCache = { GERAL: { HABILITAR_TRAY: '0' } }; // Cache local para regras
 const COPY_BUFFER_SIZE = 1048576; // 1MB
 const MAX_RETRIES = 5;
 const RETRY_DELAY_MS = 2000;
+
+app.isQuiting = false; // Inicializa a flag de fechamento real
+
 
 // ==== TRAVA DE INSTÂNCIA ÚNICA ====
 const gotTheLock = app.requestSingleInstanceLock();
@@ -60,6 +74,16 @@ function createWindow() {
 
     mainWindow.loadFile('index.html');
 
+    // Monitora se a tela (Renderer) "morreu" ou travou
+    mainWindow.webContents.on('render-process-gone', (event, details) => {
+        log.error(`CRASH: O processo de renderização sumiu! Motivo: ${details.reason}, ExitCode: ${details.exitCode}`);
+    });
+
+    mainWindow.webContents.on('unresponsive', () => {
+        log.warn('AVISO: A janela do aplicativo parou de responder.');
+    });
+
+
     // Sempre garantir que inicie visível, centrada e focada, ignorando minimização acidental de atalhos
     mainWindow.once('ready-to-show', () => {
         mainWindow.center();
@@ -67,8 +91,17 @@ function createWindow() {
         mainWindow.maximize();
         mainWindow.focus();
 
+        // Configurações de estabilidade do Updater
+        autoUpdater.disableDifferentialDownload = true;
+        autoUpdater.allowDowngrade = false; // Bloqueia volta para versões antigas em produção
+        autoUpdater.disableWebInstaller = true; // Silencia o warning de Web Installer
+
+        
         // Verifica atualizações silenciosamente
         autoUpdater.checkForUpdatesAndNotify();
+
+
+
     });
 
     // COMPORTAMENTO DE MINIMIZAR: Vai para bandeja apenas quando o evento de minimização de fato ocorrer
@@ -80,12 +113,21 @@ function createWindow() {
         }
     });
 
-    // COMPORTAMENTO DE FECHAR: Encerra a aplicação de fato
+    // COMPORTAMENTO DE FECHAR: Se tiver tray, esconde. Se for quit real, fecha.
     mainWindow.on('close', (event) => {
-        if (!app.isQuiting) {
-            if (tray) tray.destroy();
+        const trayEnabled = configCache.GERAL && configCache.GERAL.HABILITAR_TRAY === '1';
+        
+        if (!app.isQuiting && trayEnabled) {
+            event.preventDefault();
+            mainWindow.hide();
+            log.info('Janela escondida (Tray ativo)');
+            return false;
         }
+        
+        log.info('Janela fechando definitivamente');
+        if (tray) tray.destroy();
     });
+
 }
 
 function createTray() {
@@ -155,6 +197,7 @@ app.whenReady().then(async () => {
 
 // ==== AUTO UPDATER ====
 autoUpdater.on('update-downloaded', (info) => {
+    log.info('Atualização baixada:', info.version);
     if (mainWindow) {
         mainWindow.webContents.send('update-downloaded', {
             currentVersion: app.getVersion(),
@@ -163,27 +206,69 @@ autoUpdater.on('update-downloaded', (info) => {
     }
 });
 
+autoUpdater.on('error', (err) => {
+    log.error('Erro no Auto-Updater:', err);
+});
+
+autoUpdater.on('checking-for-update', () => {
+    log.info('Verificando atualizações...');
+});
+
+autoUpdater.on('update-available', (info) => {
+    log.info('Atualização disponível:', info.version);
+});
+
+autoUpdater.on('update-not-available', (info) => {
+    log.info('Nenhuma atualização disponível.');
+});
+
+
 ipcMain.handle('restart-app', () => {
+    log.info('Solicitação de Reinício para Instalação (restart-app)');
+    
     // Garante o encerramento completo para o NSIS poder sobrescrever os arquivos
     app.isQuiting = true; 
     
     if (tray) {
+        log.info('Destruindo Tray antes do Update...');
         tray.destroy();
         tray = null;
     }
 
     // Fecha todas as janelas antes de instalar
-    BrowserWindow.getAllWindows().forEach(win => {
+    const windows = BrowserWindow.getAllWindows();
+    log.info(`Fechando ${windows.length} janelas...`);
+    windows.forEach(win => {
         if (!win.isDestroyed()) win.close();
     });
 
-    // Chama a instalação (isSilent: false para mostrar o UAC se necessário, isForceRunAfter: true)
-    autoUpdater.quitAndInstall(false, true);
+    // Pequeno delay para garantir que o SO liberou locks de arquivos
+    log.info('Invocando quitAndInstall...');
+    setTimeout(() => {
+        autoUpdater.quitAndInstall(false, true);
+    }, 1000);
+});
+
+
+// ==== MONITORAMENTO DE SAÍDA ====
+app.on('before-quit', (event) => {
+    log.info(`SINAL: App recebeu pedido de fechamento (before-quit). Flag isQuiting: ${app.isQuiting}`);
+});
+
+app.on('will-quit', () => {
+    log.info('SINAL: App está prestes a encerrar (will-quit).');
 });
 
 app.on('window-all-closed', () => {
-    // Mantém vivo na bandeja
+    log.info('EVENTO: Todas as janelas foram fechadas.');
+    // Mantém vivo na bandeja apenas se o tray estiver ativo
+    const trayEnabled = configCache.GERAL && configCache.GERAL.HABILITAR_TRAY === '1';
+    if (!trayEnabled) {
+        log.info('Encerrando app pois Tray está desativado.');
+        app.quit();
+    }
 });
+
 
 // Helper de envio de mensagens
 function sendLog(msg, color = 'gray', target = 'copiar') {
@@ -232,6 +317,8 @@ async function loadConfig() {
 }
 
 // ==== IPC INI ====
+ipcMain.handle('get-app-version', () => app.getVersion());
+
 ipcMain.handle('read-ini', async () => {
     await loadConfig();
     return { success: true, data: configCache };
@@ -249,15 +336,15 @@ ipcMain.handle('save-ini', async (event, dataToSave) => {
     }
 });
 
-// Verifica se o processo tem privilégios administrativos
+// Verifica se o processo tem privilégios administrativos (Técnica Silenciosa e Assíncrona)
 ipcMain.handle('check-admin', async () => {
-    try {
-        execSync('net session', { stdio: 'ignore' });
-        return true;
-    } catch (e) {
-        return false;
-    }
+    return new Promise((resolve) => {
+        exec('fltmc', (error) => {
+            resolve(!error);
+        });
+    });
 });
+
 
 // ==== IPC Servidores e Processos ====
 
@@ -316,7 +403,7 @@ ipcMain.handle('manage-server', async (event, { srv, action }) => {
 
         if (action === 'start') {
             if (srv.Tipo === 'Servico') {
-                exec(`net start "${pureName}"`, async (error, stdout, stderr) => {
+                exec(`sc start "${pureName}"`, async (error, stdout, stderr) => {
                     if (error) {
                         const out = (stdout || stderr || '').trim();
                         sendUiLog(`ERRO ao iniciar ${pureName}: ${out || error.message}`, '#f38ba8');
@@ -333,7 +420,7 @@ ipcMain.handle('manage-server', async (event, { srv, action }) => {
             }
         } else if (action === 'stop' || action === 'kill') {
             if (srv.Tipo === 'Servico') {
-                exec(`net stop "${pureName}"`, async (error, stdout, stderr) => {
+                exec(`sc stop "${pureName}"`, async (error, stdout, stderr) => {
                     let out = (stdout || stderr || '').trim();
                     if (error && !out.includes("1062")) {
                         sendUiLog(`Aviso STOP ${pureName}: ${out || error.message}`, '#fab387');
@@ -780,11 +867,17 @@ ipcMain.handle('validate-branch', async (event, { branchPath, fileNames }) => {
     }
 });
 
-// Impede que o app feche se houver um erro inesperado em alguma operação de arquivo
+// Impede que o app feche se houver um erro inesperado
 process.on('uncaughtException', (err) => {
-    console.error('Erro não tratado:', err);
-    // Opcional: enviar log para a UI se o mainWindow ainda existir
-    if (mainWindow) {
-        sendLog(`Erro interno (Processo): ${err.message}`, '#f38ba8', 'copiar');
+    const errorMsg = `FATAL: Uncaught Exception: ${err.message}\nStack: ${err.stack}`;
+    log.error(errorMsg);
+    
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        sendLog(`Erro Crítico: Verifique os logs em AppData.`, '#f38ba8', 'copiar');
     }
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    const errorMsg = `FATAL: Unhandled Rejection at: ${promise}, reason: ${reason}`;
+    log.error(errorMsg);
 });

@@ -1,13 +1,13 @@
 {
   "name": "exeboard",
   "productName": "ExeBoard",
-  "version": "3.0.3",
+  "version": "3.0.7",
   "description": "",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder",
-    "postdist": "powershell -Command \"Remove-Item -Recurse -Force dist\\win-unpacked; Remove-Item dist\\builder-*.yml, dist\\builder-*.yaml -ErrorAction SilentlyContinue\"",
+    "postdist": "powershell -Command \"Remove-Item -Recurse -Force dist\\builder-*.yml, dist\\builder-*.yaml -ErrorAction SilentlyContinue\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -15,11 +15,12 @@
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
-    "electron": "^41.2.0",
+    "electron": "^41.3.0",
     "electron-builder": "^26.8.1",
     "electron-reload": "^2.0.0-alpha.1"
   },
   "dependencies": {
+    "electron-log": "^5.4.3",
     "electron-updater": "^6.8.3",
     "fs-extra": "^11.3.4",
     "ini": "^6.0.0",
@@ -52,7 +53,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "differentialPackage": false
     }
   }
 }

@@ -38,4 +38,6 @@ contextBridge.exposeInMainWorld('api', {
     // Auto Updater
     onUpdateDownloaded: (callback) => ipcRenderer.on('update-downloaded', (_event, data) => callback(data)),
     restartApp: () => ipcRenderer.invoke('restart-app'),
+    getAppVersion: () => ipcRenderer.invoke('get-app-version'),
 });
+

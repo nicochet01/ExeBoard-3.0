@@ -298,17 +298,32 @@ function processNextPendingConfig() {
 }
 
 // ==== Setup Inicial ====
+// ==== Setup Inicial ====
 async function init() {
     if(!window.api) return;
+    appendLog('Iniciando carregamento da interface...', '#89b4fa', 'copiar');
+
+    // Carrega e exibe a versão do app na aba Sobre
+    if (window.api.getAppVersion) {
+        const ver = await window.api.getAppVersion();
+        const verEl = document.getElementById('app-version-text');
+        if (verEl) verEl.textContent = ver;
+        appendLog(`Versão detectada no renderer: ${ver}`, '#89b4fa', 'copiar');
+    }
     
     // Reset lists to avoid duplication
     serverList = [];
     clientList = [];
     bdList = [];
 
+    appendLog('Lendo configurações do INI...', '#89b4fa', 'copiar');
     const res = await window.api.readIni();
-    if(res.error) { appendLog(res.error, '#f38ba8', 'copiar'); return; }
+    if(res.error) { 
+        appendLog('Erro ao ler INI: ' + res.error, '#f38ba8', 'copiar'); 
+        return; 
+    }
     fullConfig = res.data;
+    appendLog('INI carregado com sucesso.', '#40a02b', 'copiar');
 
     let cfg = fullConfig.CAMINHOS || {};
     document.getElementById('edtCaminhoBranch').value = cfg.DE || '';
@@ -348,16 +363,20 @@ async function init() {
     clientList.sort((a,b)=>a.Nome.localeCompare(b.Nome));
     serverList.sort((a,b)=>a.Nome.localeCompare(b.Nome));
     
+    appendLog('Renderizando listas...', '#89b4fa', 'copiar');
     renderLists();
     startPolling();
     
+    appendLog('Verificando privilégios de Administrador...', '#89b4fa', 'copiar');
     const isAdmin = await window.api.checkAdmin();
     if (!isAdmin) {
         appendLog('AVISO: O ExeBoard não está como Administrador. Algumas funções de servidores podem falhar.', 'var(--warning)', 'copiar');
         appendLog('Para corrigir, clique com o botão direito no programa e selecione "Executar como Administrador".', 'var(--warning)', 'servidores');
+    } else {
+        appendLog('Privilégios de Administrador confirmados.', '#40a02b', 'copiar');
     }
 
-    appendLog('CopiarExes aberto', '#a6adc8', 'copiar');
+    appendLog('ExeBoard pronto para uso.', '#40a02b', 'copiar');
 
     // Carregar tema salvo
     const savedTheme = fullConfig.GERAL?.TEMA || 'dark';
@@ -368,6 +387,7 @@ async function init() {
         updateTutorial(1);
     }
 }
+
 
 // ==== Polling & Aba Servidores ====
 function startPolling() {
