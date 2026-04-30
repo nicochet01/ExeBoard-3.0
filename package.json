@@ -1,7 +1,7 @@
 {
   "name": "exeboard",
   "productName": "ExeBoard",
-  "version": "3.0.7",
+  "version": "3.0.8",
   "description": "",
   "main": "main.js",
   "scripts": {
@@ -57,6 +57,5 @@
       "createStartMenuShortcut": true,
       "differentialPackage": false
     }
-
   }
 }
