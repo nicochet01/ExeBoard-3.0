@@ -133,7 +133,8 @@ body {
     margin-bottom: 5px;
 }
 
-input[type="text"] {
+input[type="text"],
+input[type="password"] {
     flex: 1;
     background: var(--input-bg);
     border: 1px solid var(--panel-border);
@@ -147,7 +148,8 @@ input[type="text"] {
     transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-input[type="text"]:focus {
+input[type="text"]:focus,
+input[type="password"]:focus {
     border-color: var(--accent);
     box-shadow: 0 0 0 2px var(--accent-glow);
 }
@@ -335,10 +337,11 @@ button {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 14px;
-    flex: 3;
+    flex: 2;
     min-height: 0;
     margin-bottom: 12px;
 }
+
 
 .column-group {
     display: flex;
@@ -465,9 +468,11 @@ button {
     display: flex;
     flex-direction: column;
     flex: 1;
-    min-height: 0;
-    max-height: 250px;
+    min-height: 180px;
+    max-height: 300px;
 }
+
+
 
 .log-buttons button {
     flex: 1;
@@ -528,7 +533,8 @@ button {
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 70000; /* Acima de tudo do tutorial */
+    z-index: 70000;
+    /* Acima de tudo do tutorial */
     backdrop-filter: blur(6px);
     pointer-events: auto !important;
 }
@@ -859,19 +865,28 @@ button {
 /* Bloqueador Global de Fundo */
 .onboarding-blocker {
     position: fixed;
-    top: 0; left: 0; width: 100%; height: 100%;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
     background: rgba(0, 0, 0, 0.85);
     z-index: 40000;
     display: none;
-    pointer-events: auto; /* Bloqueia cliques no fundo */
+    pointer-events: auto;
+    /* Bloqueia cliques no fundo */
 }
-.onboarding-active .onboarding-blocker { display: block; }
+
+.onboarding-active .onboarding-blocker {
+    display: block;
+}
 
 /* Destaque Spotlight - O efeito de "Furo" na tela escura */
 .spotlight-highlight {
     position: relative !important;
-    z-index: 50005 !important; /* Acima de tudo, inclusive do blocker */
-    pointer-events: auto !important; /* Clique garantido */
+    z-index: 50005 !important;
+    /* Acima de tudo, inclusive do blocker */
+    pointer-events: auto !important;
+    /* Clique garantido */
     border: 2px solid var(--accent) !important;
     background-color: var(--bg-elevated) !important;
     box-shadow: 0 0 25px var(--accent) !important;
@@ -910,25 +925,32 @@ button {
     z-index: 50000;
     position: fixed;
     display: flex;
-    pointer-events: none !important; /* Desativa cliques no fundo do modal */
+    pointer-events: none !important;
+    /* Desativa cliques no fundo do modal */
 }
 
 /* Escudo Invisível Interno: Garante que nada no modal aceite clique... */
 .onboarding-active #modalSettings .modal-content {
     position: relative;
 }
+
 .onboarding-active #modalSettings .modal-content::after {
     content: '';
     position: absolute;
-    top: 0; left: 0; width: 100%; height: 100%;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
     z-index: 50001;
-    pointer-events: auto; /* Esse pseudo-elemento captura todos os cliques */
+    pointer-events: auto;
+    /* Esse pseudo-elemento captura todos os cliques */
     background: transparent;
 }
 
 /* ...EXCETO o elemento que estiver com a classe de destaque! */
 .onboarding-active .spotlight-highlight {
-    z-index: 50005 !important; /* Acima do escudo (50001) */
+    z-index: 50005 !important;
+    /* Acima do escudo (50001) */
     pointer-events: auto !important;
 }
 
@@ -941,12 +963,18 @@ button {
 /* Tutorial Overlay (Card e Seta) */
 .onboarding-overlay {
     position: fixed;
-    top: 0; left: 0; width: 100%; height: 100%;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
     z-index: 60000;
     pointer-events: none;
     display: none;
 }
-.onboarding-active .onboarding-overlay { display: block; }
+
+.onboarding-active .onboarding-overlay {
+    display: block;
+}
 
 .onboarding-spotlight {
     position: absolute;
@@ -955,7 +983,7 @@ button {
     flex-direction: column;
     pointer-events: auto;
     transition: all 0.3s ease;
-    filter: drop-shadow(0 0 20px rgba(0,0,0,0.5));
+    filter: drop-shadow(0 0 20px rgba(0, 0, 0, 0.5));
 }
 
 .onboarding-card {
@@ -964,7 +992,7 @@ button {
     border-radius: 14px;
     padding: 22px 26px;
     width: 340px;
-    box-shadow: 0 0 40px var(--accent-glow), 0 12px 40px rgba(0,0,0,0.6);
+    box-shadow: 0 0 40px var(--accent-glow), 0 12px 40px rgba(0, 0, 0, 0.6);
 }
 
 .onboarding-arrow {
@@ -977,12 +1005,93 @@ button {
 }
 
 @keyframes arrowBounce {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-8px); }
+
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(-8px);
+    }
 }
 
-.onboarding-title { font-size: 1.15rem; font-weight: 700; color: var(--accent); margin-bottom: 10px; }
-.onboarding-text { font-size: 0.92rem; color: var(--text-secondary); line-height: 1.5; }
+/* ===== Bitbucket Premium UI ===== */
+.label-caps {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+    font-weight: 700;
+    margin-bottom: 8px;
+    display: block;
+}
+
+.helper-text {
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.35);
+    margin-top: 6px;
+    display: block;
+}
+
+.input-icon-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
+.input-icon-wrapper svg {
+    position: absolute;
+    left: 14px;
+    width: 16px;
+    height: 16px;
+    stroke: var(--text-secondary);
+    pointer-events: none;
+    transition: stroke 0.2s;
+}
+
+.input-icon-wrapper input:focus + svg,
+.input-icon-wrapper input:not(:placeholder-shown) + svg {
+    stroke: var(--accent);
+}
+
+.input-icon-wrapper input {
+    padding-left: 42px !important;
+}
+
+.btn-glow {
+    background: linear-gradient(135deg, var(--accent) 0%, #8b5cf6 100%);
+    box-shadow: 0 4px 15px rgba(139, 92, 246, 0.3);
+    transition: all 0.3s ease;
+    border: none;
+    color: #fff !important; 
+}
+
+.btn-glow:hover {
+    box-shadow: 0 6px 20px rgba(139, 92, 246, 0.5);
+    transform: translateY(-2px);
+    filter: brightness(1.1);
+}
+
+.bb-credentials-bar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    opacity: 0.6;
+    transition: all 0.3s;
+    background: rgba(255,255,255,0.02);
+    padding: 15px;
+    border-radius: var(--radius);
+    border: 1px solid transparent;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.bb-credentials-bar:hover, .bb-credentials-bar:focus-within {
+    opacity: 1;
+    border-color: rgba(255,255,255,0.08);
+}
 
 
 

@@ -19,13 +19,9 @@ log.info('Caminho Executável:', app.getPath('exe'));
 let mainWindow;
 let tray;
 
-// Nova estratégia: AppData (Roaming) para um executável limpo
+// Caminho unificado: AppData (userData) é a única fonte de verdade
 const userDataPath = app.getPath('userData');
-const roamingIniPath = path.join(userDataPath, 'Inicializar.ini');
-const localIniPath = path.join(app.getPath('exe'), '..', 'Inicializar.ini');
-const devIniPath = path.join(__dirname, 'Inicializar.ini');
-
-let activeIniPath = roamingIniPath; // Por padrão, salva no Roaming
+const activeIniPath = path.join(userDataPath, 'Inicializar.ini');
 let copyCancelToken = false;
 let configCache = { GERAL: { HABILITAR_TRAY: '0' } }; // Cache local para regras de negócio
 
@@ -276,43 +272,29 @@ function sendLog(msg, color = 'gray', target = 'copiar') {
 }
 
 async function loadConfig() {
-    // Lista de pastas possíveis geradas por nomes de produtos anteriores
-    const possiblePaths = [
-        roamingIniPath,
-        path.join(app.getPath('appData'), 'ExeCockpit', 'Inicializar.ini'),
-        path.join(app.getPath('appData'), 'ExeBoard Cockpit', 'Inicializar.ini'),
-        path.join(app.getPath('appData'), 'exeboard', 'Inicializar.ini'),
-        localIniPath
-    ];
-
-    // 1. Tenta encontrar a primeira que existe e migra para a oficial (roamingIniPath)
-    for (let p of possiblePaths) {
-        if (p && fs.existsSync(p)) {
-            if (p !== roamingIniPath) {
-                try {
-                    await fs.ensureDir(userDataPath);
-                    await fs.copy(p, roamingIniPath);
-                } catch (e) { }
+    try {
+        // Auto-Import: Se o INI não existir no AppData, puxa da raiz do projeto
+        if (!fs.existsSync(activeIniPath)) {
+            const bundledIniPath = path.join(__dirname, 'Inicializar.ini');
+            if (fs.existsSync(bundledIniPath)) {
+                await fs.ensureDir(userDataPath);
+                await fs.copy(bundledIniPath, activeIniPath);
+                log.info('Auto-Import: INI copiado da raiz do projeto para AppData.');
             }
-            activeIniPath = roamingIniPath;
-            break;
         }
-    }
 
-    // Fallback para desenvolvimento
-    if (!fs.existsSync(activeIniPath) && fs.existsSync(devIniPath)) {
-        activeIniPath = devIniPath;
-    }
-
-    if (fs.existsSync(activeIniPath)) {
-        try {
+        // Leitura principal: sempre do activeIniPath (AppData)
+        if (fs.existsSync(activeIniPath)) {
             const content = await fs.readFile(activeIniPath, 'utf-8');
             configCache = ini.parse(content);
-        } catch (err) {
-            console.error('Erro ao ler INI:', err);
+        } else {
+            // Nenhum INI encontrado em lugar nenhum — inicia com defaults
+            log.warn('Nenhum Inicializar.ini encontrado. Usando configuração padrão.');
+            configCache = { GERAL: { HABILITAR_TRAY: '0' } };
         }
-    } else {
-        activeIniPath = roamingIniPath;
+    } catch (err) {
+        log.error('Erro ao carregar INI:', err);
+        configCache = { GERAL: { HABILITAR_TRAY: '0' } };
     }
 }
 
@@ -328,11 +310,49 @@ ipcMain.handle('save-ini', async (event, dataToSave) => {
     try {
         await fs.ensureDir(userDataPath);
         const parsed = ini.stringify(dataToSave);
-        await fs.writeFile(roamingIniPath, parsed, 'utf-8');
+        await fs.writeFile(activeIniPath, parsed, 'utf-8');
         configCache = dataToSave; // Atualiza o cache do backend
         return { success: true };
     } catch (err) {
         return { error: err.message };
+    }
+});
+
+// Salva apenas uma seção do INI sem sobrescrever o resto
+ipcMain.handle('save-ini-section', async (event, sectionName, sectionData) => {
+    try {
+        await fs.ensureDir(userDataPath);
+        configCache[sectionName] = sectionData;
+        const parsed = ini.stringify(configCache);
+        await fs.writeFile(activeIniPath, parsed, 'utf-8');
+        return { success: true };
+    } catch (err) {
+        return { error: err.message };
+    }
+});
+
+// Lista branches do Bitbucket para autocomplete (Live Search)
+ipcMain.handle('list-branches', async (event, config) => {
+    const { workspace, repo, user, appPassword, searchTerm } = config;
+    if (!workspace || !repo || !user || !appPassword) return [];
+    
+    const authHeader = 'Basic ' + Buffer.from(`${user}:${appPassword}`).toString('base64');
+    const headers = { 'Authorization': authHeader };
+    
+    try {
+        let url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}/refs/branches?sort=-target.date&pagelen=20`;
+        if (searchTerm) {
+            // Encode the BbQL query: name ~ "term"
+            const query = `name ~ "${searchTerm}"`;
+            url += `&q=${encodeURIComponent(query)}`;
+        }
+        
+        const res = await fetch(url, { headers });
+        if (!res.ok) return [];
+        const data = await res.json();
+        return (data.values || []).map(b => b.name);
+    } catch (err) {
+        return [];
     }
 });
 
@@ -867,7 +887,144 @@ ipcMain.handle('validate-branch', async (event, { branchPath, fileNames }) => {
     }
 });
 
+// ==== MOTOR DE EXTRAÇÃO BITBUCKET ====
+ipcMain.handle('extract-bitbucket', async (event, config) => {
+    const { workspace, repo, user, appPassword, base, branch, targetDir } = config;
+    
+    // Auth header
+    const authHeader = 'Basic ' + Buffer.from(`${user}:${appPassword}`).toString('base64');
+    const headers = { 'Authorization': authHeader };
+    
+    try {
+        sendLog('Iniciando comunicação com Bitbucket API...', '#89b4fa', 'copiar');
+        
+        // 1. Obter DiffStat
+        const diffUrl = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}/diffstat/${branch}..${base}`;
+        const diffRes = await fetch(diffUrl, { headers });
+        
+        if (!diffRes.ok) {
+            const errText = await diffRes.text();
+            throw new Error(`Falha no DiffStat (${diffRes.status}): ${errText}`);
+        }
+        
+        const diffData = await diffRes.json();
+        
+        // Extrair caminhos únicos e links diretos da API
+        const downloadTasks = [];
+        for (const item of (diffData.values || [])) {
+            if (item.status === 'removed') continue;
+            
+            const filePath = item.new?.path || item.old?.path;
+            if (filePath && !downloadTasks.some(t => t.path === filePath)) {
+                downloadTasks.push({
+                    path: filePath,
+                    branchUrl: item.new?.links?.self?.href,
+                    baseUrl: item.old?.links?.self?.href
+                });
+            }
+        }
+        
+        if (downloadTasks.length === 0) {
+            sendLog('Nenhum arquivo modificado encontrado entre as branches.', '#f38ba8', 'copiar');
+            return { success: false, msg: 'Sem alterações' };
+        }
+        
+        sendLog(`DiffStat concluído: ${downloadTasks.length} arquivo(s) modificado(s).`, '#a6adc8', 'copiar');
+        
+        // 2. Preparar Diretórios (Nova Estrutura Achatada)
+        // Raiz: {targetDir}/{repo}
+        const extractRoot = path.join(targetDir, repo);
+        // Subpasta fixa: branch
+        const dirBranch = path.join(extractRoot, 'branch');
+        // Subpasta dinâmica: nome da base higienizado (barras viram hifens)
+        const baseSafe = base.replace(/\//g, '-').replace(/[<>:"\\|?*]/g, '_');
+        const dirBase = path.join(extractRoot, baseSafe);
+        
+        // Garante que as pastas existam E estejam vazias para evitar mistura de arquivos antigos
+        await fs.emptyDir(dirBranch);
+        await fs.emptyDir(dirBase);
+        
+        sendLog(`Estrutura limpa/criada em: ${extractRoot}`, '#a6adc8', 'copiar');
+        
+        // 3. Download Concorrente (Lotes de 5) — Flatten + Nomenclatura Dinâmica
+        const ausentesBase = [];
+        let concluido = 0;
+        
+        const downloadFlatUrl = async (url, originalFilePath, targetFolder, renameFn) => {
+            if (!url) return false;
+            
+            const res = await fetch(url, { headers });
+            
+            if (!res.ok) {
+                const errText = await res.text();
+                throw new Error(`HTTP ${res.status}: ${errText}`);
+            }
+            
+            // Flatten: usa apenas o basename do arquivo, sem recriar diretórios
+            const originalName = path.basename(originalFilePath);
+            const finalName = renameFn ? renameFn(originalName) : originalName;
+            const destPath = path.join(targetFolder, finalName);
+            
+            const buffer = await res.arrayBuffer();
+            await fs.writeFile(destPath, Buffer.from(buffer));
+            return true;
+        };
+        
+        // Função de renomeação para arquivos da Base: arquivo(base).ext
+        const renameForBase = (originalName) => {
+            const parsed = path.parse(originalName);
+            return `${parsed.name}(${baseSafe})${parsed.ext}`;
+        };
+        
+        for (let i = 0; i < downloadTasks.length; i += 5) {
+            const batch = downloadTasks.slice(i, i + 5);
+            await Promise.allSettled(batch.map(async (task) => {
+                const { path: filePath, branchUrl, baseUrl } = task;
+                const baseFilename = path.basename(filePath);
+                
+                // Download Branch (nome original, achatado)
+                if (branchUrl) {
+                    try {
+                        await downloadFlatUrl(branchUrl, filePath, dirBranch, null);
+                    } catch (e) {
+                        sendLog(`[ERRO] Falha ao baixar ${baseFilename} (Tarefa): ${e.message}`, '#f87171', 'copiar');
+                    }
+                }
+                
+                // Download Base (nome com sufixo da base, achatado)
+                if (baseUrl) {
+                    try {
+                        await downloadFlatUrl(baseUrl, filePath, dirBase, renameForBase);
+                    } catch (e) {
+                        sendLog(`[ERRO] Falha ao baixar ${baseFilename} (Base): ${e.message}`, '#f87171', 'copiar');
+                        ausentesBase.push(filePath);
+                    }
+                } else {
+                    ausentesBase.push(filePath);
+                }
+                
+                concluido++;
+                sendLog(`Progresso: [${concluido}/${downloadTasks.length}] ${baseFilename}`, '#a6adc8', 'copiar');
+            }));
+        }
+        
+        // 4. Fechamento e Log de Ausentes
+        if (ausentesBase.length > 0) {
+            await fs.writeFile(path.join(dirBase, 'arquivos_ausentes.txt'), ausentesBase.join('\n'));
+            sendLog(`Aviso: ${ausentesBase.length} arquivo(s) novo(s) ignorado(s) na pasta ${baseSafe} (registrados em txt).`, '#fbbf24', 'copiar');
+        }
+        
+        sendLog('🎉 Extração Concluída com Sucesso!', '#4ade80', 'copiar');
+        return { success: true, root: extractRoot };
+        
+    } catch (err) {
+        sendLog(`Erro Crítico na Extração: ${err.message}`, '#f38ba8', 'copiar');
+        return { success: false, msg: err.message };
+    }
+});
+
 // Impede que o app feche se houver um erro inesperado
+
 process.on('uncaughtException', (err) => {
     const errorMsg = `FATAL: Uncaught Exception: ${err.message}\nStack: ${err.stack}`;
     log.error(errorMsg);

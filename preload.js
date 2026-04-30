@@ -20,6 +20,9 @@ contextBridge.exposeInMainWorld('api', {
     openMultiFiles: (defaultPath) => ipcRenderer.invoke('open-multi-files', defaultPath),
     executeExternal: (path) => ipcRenderer.invoke('execute-external', path),
     openExternal: (url) => ipcRenderer.invoke('open-external-url', url),
+    extractBitbucket: (config) => ipcRenderer.invoke('extract-bitbucket', config),
+    saveIniSection: (section, data) => ipcRenderer.invoke('save-ini-section', section, data),
+    listBranches: (config) => ipcRenderer.invoke('list-branches', config),
 
     buildQueue: (data) => ipcRenderer.invoke('build-queue', data),
     executarCopia: (fila) => ipcRenderer.invoke('execute-copy-files', fila),

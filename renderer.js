@@ -331,6 +331,15 @@ async function init() {
     document.getElementById('txtDestinoServidores').value = cfg.PASTA_SERVER || '';
     document.getElementById('txtDestinoAtualizadores').value = cfg.PASTA_DADOS || '';
 
+    // Load Bitbucket Config
+    let bb = fullConfig.BITBUCKET || {};
+    if(document.getElementById('bbWorkspace')) document.getElementById('bbWorkspace').value = bb.WORKSPACE || '';
+    if(document.getElementById('bbRepo')) document.getElementById('bbRepo').value = bb.REPO || '';
+    if(document.getElementById('bbUser')) document.getElementById('bbUser').value = bb.USER || '';
+    if(document.getElementById('bbPassword')) document.getElementById('bbPassword').value = bb.PASSWORD || '';
+    if(document.getElementById('bbTargetDir')) document.getElementById('bbTargetDir').value = bb.TARGET_DIR || '';
+
+
     let cliBase = fullConfig.APLICACOES_CLIENTE || {};
     for(let i=0; i<(cliBase.Count||0); i++) {
         if(cliBase[`Cliente${i}`]) clientList.push({Nome: cliBase[`Cliente${i}`], SubDiretorios: cliBase[`SubDiretorios${i}`]||''});
@@ -1400,3 +1409,211 @@ function updateTutorialLogic(step) {
         }
     }
 }
+
+// ==== BITBUCKET EXTRACTION ====
+
+// Auto-save de credenciais no blur (evento correto para "perder foco")
+['bbWorkspace', 'bbRepo', 'bbUser', 'bbPassword'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+        el.addEventListener('blur', async () => {
+            const data = {
+                WORKSPACE: document.getElementById('bbWorkspace').value.trim(),
+                REPO: document.getElementById('bbRepo').value.trim(),
+                USER: document.getElementById('bbUser').value.trim(),
+                PASSWORD: document.getElementById('bbPassword').value.trim(),
+                TARGET_DIR: document.getElementById('bbTargetDir').value.trim()
+            };
+            await window.api.saveIniSection('BITBUCKET', data);
+        });
+    }
+});
+
+// Auto-save do campo de destino no blur também
+document.getElementById('bbTargetDir')?.addEventListener('blur', async () => {
+    const data = {
+        WORKSPACE: document.getElementById('bbWorkspace').value.trim(),
+        REPO: document.getElementById('bbRepo').value.trim(),
+        USER: document.getElementById('bbUser').value.trim(),
+        PASSWORD: document.getElementById('bbPassword').value.trim(),
+        TARGET_DIR: document.getElementById('bbTargetDir').value.trim()
+    };
+    await window.api.saveIniSection('BITBUCKET', data);
+});
+
+// Selecionar pasta via diálogo do sistema (fix: openFolder retorna string, não array)
+async function selecionarDestinoBitbucket() {
+    const defaultPath = document.getElementById('bbTargetDir').value;
+    const selectedPath = await window.api.openFolder(defaultPath);
+    if (selectedPath) {
+        document.getElementById('bbTargetDir').value = selectedPath;
+        document.getElementById('bbTargetDir').dispatchEvent(new Event('blur'));
+    }
+}
+
+// Busca dinâmica de branches para autocomplete
+async function fetchBitbucketBranchesDynamic(searchTerm) {
+    const workspace = document.getElementById('bbWorkspace').value.trim();
+    const repo = document.getElementById('bbRepo').value.trim();
+    const user = document.getElementById('bbUser').value.trim();
+    const appPassword = document.getElementById('bbPassword').value.trim();
+    
+    if (!workspace || !repo || !user || !appPassword) return [];
+    
+    return await window.api.listBranches({ workspace, repo, user, appPassword, searchTerm });
+}
+
+// Lógica Customizada de Autocomplete para Branches com Debounce (Live Search)
+function renderBbSuggestions(inputId, suggestId) {
+    const input = document.getElementById(inputId);
+    const suggestBox = document.getElementById(suggestId);
+    let debounceTimer;
+    
+    const handler = async () => {
+        clearTimeout(debounceTimer);
+        const val = input.value.trim();
+        
+        // UX Extra: Feedback visual
+        suggestBox.innerHTML = '<div class="suggestion-item" style="color: var(--warning); opacity: 0.8; cursor: default;">⏳ Carregando...</div>';
+        suggestBox.style.display = 'block';
+        
+        debounceTimer = setTimeout(async () => {
+            const branches = await fetchBitbucketBranchesDynamic(val);
+            
+            suggestBox.innerHTML = '';
+            if (branches.length > 0) {
+                branches.forEach(s => {
+                    const item = document.createElement('div');
+                    item.className = 'suggestion-item';
+                    item.textContent = s;
+                    item.onclick = () => {
+                        input.value = s;
+                        suggestBox.style.display = 'none';
+                    };
+                    suggestBox.appendChild(item);
+                });
+            } else {
+                suggestBox.innerHTML = '<div class="suggestion-item" style="color: var(--danger); cursor: default;">Nenhuma branch encontrada</div>';
+            }
+        }, 400); // Debounce de 400ms
+    };
+
+    // Apenas evento de input para não engatilhar sem necessidade e proteger a API
+    input?.addEventListener('input', handler);
+}
+
+renderBbSuggestions('bbBase', 'suggest-bbBase');
+renderBbSuggestions('bbBranch', 'suggest-bbBranch');
+
+// Oculta ao clicar fora
+document.addEventListener('click', (e) => {
+    if (e.target !== document.getElementById('bbBase')) document.getElementById('suggest-bbBase').style.display = 'none';
+    if (e.target !== document.getElementById('bbBranch')) document.getElementById('suggest-bbBranch').style.display = 'none';
+});
+
+// Helper para coletar config do modal
+function getBbConfig() {
+    return {
+        workspace: document.getElementById('bbWorkspace').value.trim(),
+        repo: document.getElementById('bbRepo').value.trim(),
+        user: document.getElementById('bbUser').value.trim(),
+        appPassword: document.getElementById('bbPassword').value.trim(),
+        base: document.getElementById('bbBase').value.trim() || 'main',
+        branch: document.getElementById('bbBranch').value.trim(),
+        targetDir: document.getElementById('bbTargetDir').value.trim()
+    };
+}
+
+// Botão "Verificar Arquivos" — Preview antes de baixar
+document.getElementById('btnVerifyBitbucket')?.addEventListener('click', async () => {
+    const cfg = getBbConfig();
+    
+    if (!cfg.workspace || !cfg.repo || !cfg.user || !cfg.appPassword || !cfg.branch) {
+        appendLog('Preencha Credenciais e Branch da Tarefa para verificar.', '#f38ba8', 'copiar');
+        return;
+    }
+    
+    const btn = document.getElementById('btnVerifyBitbucket');
+    btn.disabled = true;
+    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg> Verificando...';
+    
+    const preview = document.getElementById('bbPreviewContainer');
+    preview.style.display = 'none';
+    preview.innerHTML = '';
+    
+    try {
+        const authHeader = 'Basic ' + btoa(`${cfg.user}:${cfg.appPassword}`);
+        const url = `https://api.bitbucket.org/2.0/repositories/${cfg.workspace}/${cfg.repo}/diffstat/${cfg.branch}..${cfg.base}`;
+        const res = await fetch(url, { headers: { 'Authorization': authHeader } });
+        
+        if (!res.ok) {
+            const errText = await res.text();
+            preview.innerHTML = `<span style="color: #f38ba8;">Erro ${res.status}: ${errText}</span>`;
+            preview.style.display = 'block';
+            return;
+        }
+        
+        const data = await res.json();
+        const files = (data.values || [])
+            .filter(item => item.status !== 'removed')
+            .map(item => item.new?.path || item.old?.path)
+            .filter(Boolean);
+        
+        if (files.length === 0) {
+            preview.innerHTML = '<span style="color: #fbbf24;">Nenhum arquivo modificado encontrado entre as branches.</span>';
+        } else {
+            // Extrai apenas o basename de cada arquivo e renderiza como lista organizada
+            const fileNames = files.map(f => f.split('/').pop());
+            const headerHtml = `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.08);">
+                <strong style="color: var(--text-primary); font-size: 0.82rem;">${files.length} arquivo(s) encontrado(s)</strong>
+                <span style="font-size:0.72rem; opacity:0.5;">Preview</span>
+            </div>`;
+            const listHtml = fileNames.map((name, i) => `<div style="display:flex; align-items:center; gap:8px; padding:4px 8px; border-radius:4px; background:${i % 2 === 0 ? 'rgba(255,255,255,0.03)' : 'transparent'};">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${name}</span>
+            </div>`).join('');
+            preview.innerHTML = headerHtml + `<div style="display:flex; flex-direction:column; gap:2px;">${listHtml}</div>`;
+        }
+        preview.style.display = 'block';
+    } catch (err) {
+        preview.innerHTML = `<span style="color: #f38ba8;">Erro de conexão: ${err.message}</span>`;
+        preview.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg> Verificar Arquivos';
+    }
+});
+
+// Botão "Iniciar Extração"
+document.getElementById('btnExtractBitbucket')?.addEventListener('click', async () => {
+    const cfg = getBbConfig();
+    
+    if (!cfg.workspace || !cfg.repo || !cfg.user || !cfg.appPassword || !cfg.branch || !cfg.targetDir) {
+        appendLog('Por favor, preencha todos os campos obrigatórios da extração.', '#f38ba8', 'copiar');
+        return;
+    }
+    
+    document.getElementById('modalBitbucket').style.display = 'none';
+    appendLog(`[Extrator Cloud] Iniciando download da branch: ${cfg.branch}`, '#cba6f7', 'copiar');
+    
+    const btn = document.getElementById('btnExtractBitbucket');
+    btn.disabled = true;
+    btn.textContent = '⏳ Extraindo...';
+    
+    const config = { workspace: cfg.workspace, repo: cfg.repo, user: cfg.user, appPassword: cfg.appPassword, base: cfg.base, branch: cfg.branch, targetDir: cfg.targetDir };
+    const res = await window.api.extractBitbucket(config);
+    
+    if (res.success && res.root) {
+        window.api.executeExternal(res.root); 
+    }
+    
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Iniciar Extração';
+});
+
+// Botão para abrir o Modal do Bitbucket
+document.getElementById('btnOpenBitbucket')?.addEventListener('click', () => {
+    document.getElementById('modalBitbucket').style.display = 'flex';
+    if (bbBranchCache.length === 0) fetchBitbucketBranches();
+});
+
