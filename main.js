@@ -21,7 +21,8 @@ let tray;
 
 // Caminho unificado: AppData (userData) é a única fonte de verdade
 const userDataPath = app.getPath('userData');
-const activeIniPath = path.join(userDataPath, 'Inicializar.ini');
+const activeJsonPath = path.join(userDataPath, 'configuracoes.json');
+const legacyIniPath = path.join(userDataPath, 'Inicializar.ini');
 let copyCancelToken = false;
 let configCache = { GERAL: { HABILITAR_TRAY: '0' } }; // Cache local para regras de negócio
 
@@ -182,7 +183,7 @@ function createTray() {
 
 app.whenReady().then(async () => {
     await loadConfig(); // Carrega configs antes de criar a UI
-    console.log('INI Carregado. Tray Ativo:', configCache.GERAL?.HABILITAR_TRAY);
+    console.log('Config JSON Carregada. Tray Ativo:', configCache.GERAL?.HABILITAR_TRAY);
     createWindow();
     createTray();
 
@@ -273,44 +274,66 @@ function sendLog(msg, color = 'gray', target = 'copiar') {
 
 async function loadConfig() {
     try {
-        // Auto-Import: Se o INI não existir no AppData, puxa da raiz do projeto
-        if (!fs.existsSync(activeIniPath)) {
-            const bundledIniPath = path.join(__dirname, 'Inicializar.ini');
-            if (fs.existsSync(bundledIniPath)) {
-                await fs.ensureDir(userDataPath);
-                await fs.copy(bundledIniPath, activeIniPath);
-                log.info('Auto-Import: INI copiado da raiz do projeto para AppData.');
-            }
+        await fs.ensureDir(userDataPath);
+
+        // === REGRA 1: Se o JSON já existe, usa ele (fonte de verdade) ===
+        if (fs.existsSync(activeJsonPath)) {
+            const content = await fs.readFile(activeJsonPath, 'utf-8');
+            configCache = JSON.parse(content);
+            log.info('Config carregada do configuracoes.json.');
+            return;
         }
 
-        // Leitura principal: sempre do activeIniPath (AppData)
-        if (fs.existsSync(activeIniPath)) {
-            const content = await fs.readFile(activeIniPath, 'utf-8');
-            configCache = ini.parse(content);
+        // === REGRA 2: Migração automática do INI legado ===
+        // Procura no AppData e na raiz do projeto (bundled)
+        let iniToMigrate = null;
+        if (fs.existsSync(legacyIniPath)) {
+            iniToMigrate = legacyIniPath;
         } else {
-            // Nenhum INI encontrado em lugar nenhum — inicia com defaults
-            log.warn('Nenhum Inicializar.ini encontrado. Usando configuração padrão.');
-            configCache = { GERAL: { HABILITAR_TRAY: '0' } };
+            const bundledIniPath = path.join(__dirname, 'Inicializar.ini');
+            if (fs.existsSync(bundledIniPath)) iniToMigrate = bundledIniPath;
         }
+
+        if (iniToMigrate) {
+            log.info(`Migrando INI legado para JSON: ${iniToMigrate}`);
+            const iniContent = await fs.readFile(iniToMigrate, 'utf-8');
+            configCache = ini.parse(iniContent);
+
+            // Salva no novo formato JSON
+            await fs.writeFile(activeJsonPath, JSON.stringify(configCache, null, 2), 'utf-8');
+            log.info('Migração concluída: configuracoes.json criado com sucesso.');
+
+            // Apaga o INI antigo do AppData (se existir lá)
+            if (fs.existsSync(legacyIniPath)) {
+                await fs.unlink(legacyIniPath);
+                log.info('INI legado removido do AppData após migração.');
+            }
+            return;
+        }
+
+        // === REGRA 3: Nenhum arquivo encontrado — cria JSON zerado ===
+        log.warn('Nenhuma configuração encontrada. Criando configuracoes.json padrão.');
+        configCache = { GERAL: { HABILITAR_TRAY: '0' } };
+        await fs.writeFile(activeJsonPath, JSON.stringify(configCache, null, 2), 'utf-8');
+
     } catch (err) {
-        log.error('Erro ao carregar INI:', err);
+        log.error('Erro ao carregar configurações:', err);
         configCache = { GERAL: { HABILITAR_TRAY: '0' } };
     }
 }
 
-// ==== IPC INI ====
+// ==== IPC CONFIG (JSON Nativo) ====
 ipcMain.handle('get-app-version', () => app.getVersion());
 
-ipcMain.handle('read-ini', async () => {
+ipcMain.handle('read-config', async () => {
     await loadConfig();
     return { success: true, data: configCache };
 });
 
-ipcMain.handle('save-ini', async (event, dataToSave) => {
+ipcMain.handle('save-config', async (event, dataToSave) => {
     try {
         await fs.ensureDir(userDataPath);
-        const parsed = ini.stringify(dataToSave);
-        await fs.writeFile(activeIniPath, parsed, 'utf-8');
+        await fs.writeFile(activeJsonPath, JSON.stringify(dataToSave, null, 2), 'utf-8');
         configCache = dataToSave; // Atualiza o cache do backend
         return { success: true };
     } catch (err) {
@@ -318,13 +341,12 @@ ipcMain.handle('save-ini', async (event, dataToSave) => {
     }
 });
 
-// Salva apenas uma seção do INI sem sobrescrever o resto
-ipcMain.handle('save-ini-section', async (event, sectionName, sectionData) => {
+// Salva apenas uma seção da config sem sobrescrever o resto
+ipcMain.handle('save-config-section', async (event, sectionName, sectionData) => {
     try {
         await fs.ensureDir(userDataPath);
         configCache[sectionName] = sectionData;
-        const parsed = ini.stringify(configCache);
-        await fs.writeFile(activeIniPath, parsed, 'utf-8');
+        await fs.writeFile(activeJsonPath, JSON.stringify(configCache, null, 2), 'utf-8');
         return { success: true };
     } catch (err) {
         return { error: err.message };

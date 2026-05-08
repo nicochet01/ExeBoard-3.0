@@ -1,8 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
-    readIni: () => ipcRenderer.invoke('read-ini'),
-    saveIni: (data) => ipcRenderer.invoke('save-ini', data),
+    readConfig: () => ipcRenderer.invoke('read-config'),
+    saveConfig: (data) => ipcRenderer.invoke('save-config', data),
     checkAdmin: () => ipcRenderer.invoke('check-admin'),
     
     // Status Polling & IA
@@ -21,7 +21,7 @@ contextBridge.exposeInMainWorld('api', {
     executeExternal: (path) => ipcRenderer.invoke('execute-external', path),
     openExternal: (url) => ipcRenderer.invoke('open-external-url', url),
     extractBitbucket: (config) => ipcRenderer.invoke('extract-bitbucket', config),
-    saveIniSection: (section, data) => ipcRenderer.invoke('save-ini-section', section, data),
+    saveConfigSection: (section, data) => ipcRenderer.invoke('save-config-section', section, data),
     listBranches: (config) => ipcRenderer.invoke('list-branches', config),
 
     buildQueue: (data) => ipcRenderer.invoke('build-queue', data),

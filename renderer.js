@@ -20,8 +20,9 @@ let bdList = [];
 let pollingTimer = null;
 let isCopying = false;
 
-// Memória de Logs para Filtragem
+// Memória de Logs para Filtragem (Limite de 500 entradas para proteção de memória)
 let logMemory = [];
+const MAX_LOG_ENTRIES = 500;
 const LOG_COLORS = {
     info: '#89b4fa', // Blue
     automation: '#cba6f7', // Purple
@@ -94,6 +95,11 @@ function appendLog(data, colorParam, targetParam) {
     };
     logMemory.push(entry);
 
+    // Trava de Memória: Remove entradas antigas quando ultrapassar o limite
+    if (logMemory.length > MAX_LOG_ENTRIES) {
+        logMemory.shift();
+    }
+
     renderLogEntry(entry);
 }
 
@@ -112,6 +118,12 @@ function renderLogEntry(entry) {
     else div.dataset.type = 'info';
 
     box.appendChild(div);
+
+    // Trava de Memória Visual: Remove a linha mais antiga do DOM quando ultrapassar o limite
+    while (box.childElementCount > MAX_LOG_ENTRIES) {
+        box.removeChild(box.firstChild);
+    }
+
     box.scrollTop = box.scrollHeight;
 }
 
@@ -316,14 +328,14 @@ async function init() {
     clientList = [];
     bdList = [];
 
-    appendLog('Lendo configurações do INI...', '#89b4fa', 'copiar');
-    const res = await window.api.readIni();
+    appendLog('Lendo configurações...', '#89b4fa', 'copiar');
+    const res = await window.api.readConfig();
     if(res.error) { 
-        appendLog('Erro ao ler INI: ' + res.error, '#f38ba8', 'copiar'); 
+        appendLog('Erro ao ler configurações: ' + res.error, '#f38ba8', 'copiar'); 
         return; 
     }
     fullConfig = res.data;
-    appendLog('INI carregado com sucesso.', '#40a02b', 'copiar');
+    appendLog('Configurações carregadas com sucesso.', '#40a02b', 'copiar');
 
     let cfg = fullConfig.CAMINHOS || {};
     document.getElementById('edtCaminhoBranch').value = cfg.DE || '';
@@ -398,19 +410,32 @@ async function init() {
 }
 
 
-// ==== Polling & Aba Servidores ====
+// ==== Polling & Aba Servidores (Anti-Avalanche: Verificação Sequencial) ====
+let isPolling = false;
 function startPolling() {
-    if(pollingTimer) clearInterval(pollingTimer);
-    pollingTimer = setInterval(async () => {
-        for(let i=0; i<serverList.length; i++) {
-            const status = await window.api.checkStatus(serverList[i]);
-            const ind = document.getElementById(`ind_${i}`);
-            if(ind) {
-                ind.className = 'indicator ' + status;
-                ind.parentElement.dataset.status = status;
+    if(pollingTimer) clearTimeout(pollingTimer);
+    scheduleNextPoll();
+}
+
+function scheduleNextPoll() {
+    pollingTimer = setTimeout(async () => {
+        if (isPolling) return; // Proteção contra encavalamento
+        isPolling = true;
+        try {
+            for(let i=0; i<serverList.length; i++) {
+                const status = await window.api.checkStatus(serverList[i]);
+                const ind = document.getElementById(`ind_${i}`);
+                if(ind) {
+                    ind.className = 'indicator ' + status;
+                    ind.parentElement.dataset.status = status;
+                }
             }
+        } catch (err) {
+            // Proteção: Se o check falhar, não trava o ciclo
+        } finally {
+            isPolling = false;
+            scheduleNextPoll(); // Só agenda a próxima APÓS terminar
         }
-        filterServersView();
     }, 2000);
 }
 
@@ -580,8 +605,8 @@ document.getElementById('btnCopiarDados').addEventListener('click', async () => 
                 const item = list.find(i => i.Nome.toLowerCase() === learned.name.toLowerCase());
                 if (item) item.SubDiretorios = learned.subFolder;
             });
-            await window.saveConfig(); // Persiste no INI o aprendizado
-            appendLog(`[MEMÓRIA] ${learnedPaths.length} caminhos foram aprendidos e salvos no INI.`, LOG_COLORS.automation, 'copiar');
+            await window.saveConfig(); // Persiste o aprendizado
+            appendLog(`[MEMÓRIA] ${learnedPaths.length} caminhos foram aprendidos e salvos.`, LOG_COLORS.automation, 'copiar');
             renderLists();
         }
 
@@ -1041,7 +1066,7 @@ window.saveConfig = async () => {
     fullConfig.GERAL.HABILITAR_TRAY = document.getElementById('chkHabilitarTray').checked ? '1' : '0';
     fullConfig.GERAL.TEMA = document.body.classList.contains('light-theme') ? 'light' : 'dark';
 
-    await window.api.saveIni(fullConfig);
+    await window.api.saveConfig(fullConfig);
     unsavedChanges = false;
     document.getElementById('lblUnsaved').textContent = '(Salvo com Sucesso!)';
     setTimeout(()=>{document.getElementById('lblUnsaved').textContent=''}, 2000);
@@ -1252,7 +1277,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('btnToggleTheme').textContent = isLight ? '☀️' : '🌙';
         if(!fullConfig.GERAL) fullConfig.GERAL = {};
         fullConfig.GERAL.TEMA = isLight ? 'light' : 'dark';
-        window.api.saveIni(fullConfig);
+        window.api.saveConfig(fullConfig);
     });
 
 });
@@ -1424,7 +1449,7 @@ function updateTutorialLogic(step) {
                 PASSWORD: document.getElementById('bbPassword').value.trim(),
                 TARGET_DIR: document.getElementById('bbTargetDir').value.trim()
             };
-            await window.api.saveIniSection('BITBUCKET', data);
+            await window.api.saveConfigSection('BITBUCKET', data);
         });
     }
 });
@@ -1438,7 +1463,7 @@ document.getElementById('bbTargetDir')?.addEventListener('blur', async () => {
         PASSWORD: document.getElementById('bbPassword').value.trim(),
         TARGET_DIR: document.getElementById('bbTargetDir').value.trim()
     };
-    await window.api.saveIniSection('BITBUCKET', data);
+    await window.api.saveConfigSection('BITBUCKET', data);
 });
 
 // Selecionar pasta via diálogo do sistema (fix: openFolder retorna string, não array)
