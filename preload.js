@@ -15,7 +15,7 @@ contextBridge.exposeInMainWorld('api', {
     
     // Diretórios GUI
     openFolder: (defaultPath) => ipcRenderer.invoke('open-folder-dialog', defaultPath),
-    openFileGetFolder: () => ipcRenderer.invoke('open-file-get-folder'),
+    openFileGetFolder: (defaultPath) => ipcRenderer.invoke('open-file-get-folder', defaultPath),
     getPathSuggestions: (partial) => ipcRenderer.invoke('get-path-suggestions', partial),
     openMultiFiles: (defaultPath) => ipcRenderer.invoke('open-multi-files', defaultPath),
     executeExternal: (path) => ipcRenderer.invoke('execute-external', path),

@@ -660,7 +660,7 @@ function toggleUILock(lock) {
 // Mocking actions
 document.getElementById('btnBuscarPath').addEventListener('click', async () => {
     let current = document.getElementById('edtCaminhoBranch').value;
-    const p = await window.api.openFolder(current);
+    const p = await window.api.openFileGetFolder(current);
     if(p) { 
         document.getElementById('edtCaminhoBranch').value = p; 
         markUnsaved(); 
@@ -708,6 +708,22 @@ window.selectFolderDest = async (inputId) => {
         }
     }
 };
+
+// Listeners para edição manual dos diretórios
+['txtDestinoAtualizadores', 'txtDestinoClientes', 'txtDestinoServidores'].forEach(inputId => {
+    const el = document.getElementById(inputId);
+    if (el) {
+        el.addEventListener('input', () => {
+            markUnsaved();
+            // Progressão do Tutorial
+            if (typeof tutorialStep !== 'undefined') {
+                if (tutorialStep === 2 && inputId === 'txtDestinoAtualizadores' && el.value.trim().length > 3) updateTutorial(3);
+                else if (tutorialStep === 3 && inputId === 'txtDestinoClientes' && el.value.trim().length > 3) updateTutorial(4);
+                else if (tutorialStep === 4 && inputId === 'txtDestinoServidores' && el.value.trim().length > 3) updateTutorial(5);
+            }
+        });
+    }
+});
 
 // Helper: Escolha de Origem
 async function requestFilesWithOrigin(type) {
@@ -1568,7 +1584,7 @@ document.getElementById('btnVerifyBitbucket')?.addEventListener('click', async (
     
     try {
         const authHeader = 'Basic ' + btoa(`${cfg.user}:${cfg.appPassword}`);
-        const url = `https://api.bitbucket.org/2.0/repositories/${cfg.workspace}/${cfg.repo}/diffstat/${cfg.branch}..${cfg.base}`;
+        const url = `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(cfg.workspace)}/${encodeURIComponent(cfg.repo)}/diffstat/${encodeURIComponent(cfg.branch)}..${encodeURIComponent(cfg.base)}`;
         const res = await fetch(url, { headers: { 'Authorization': authHeader } });
         
         if (!res.ok) {

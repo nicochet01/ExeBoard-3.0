@@ -362,7 +362,7 @@ ipcMain.handle('list-branches', async (event, config) => {
     const headers = { 'Authorization': authHeader };
     
     try {
-        let url = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}/refs/branches?sort=-target.date&pagelen=20`;
+        let url = `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repo)}/refs/branches?sort=-target.date&pagelen=20`;
         if (searchTerm) {
             // Encode the BbQL query: name ~ "term"
             const query = `name ~ "${searchTerm}"`;
@@ -802,9 +802,16 @@ ipcMain.handle('get-windows-services', async () => {
     });
 });
 
-ipcMain.handle('open-file-get-folder', async () => {
-    const res = await dialog.showOpenDialog(mainWindow, { properties: ['openFile'] });
-    if (res.filePaths.length > 0) return path.dirname(res.filePaths[0]);
+ipcMain.handle('open-file-get-folder', async (event, defaultPath) => {
+    const opts = { properties: ['openFile'] };
+    if (defaultPath) {
+        try {
+            const cleanPath = defaultPath.replace(/Informe.*/, '').trim();
+            if (cleanPath && await fs.pathExists(cleanPath)) opts.defaultPath = cleanPath;
+        } catch (e) { }
+    }
+    const res = await dialog.showOpenDialog(mainWindow, opts);
+    if (res.filePaths && res.filePaths.length > 0) return path.dirname(res.filePaths[0]);
     return null;
 });
 
@@ -921,7 +928,7 @@ ipcMain.handle('extract-bitbucket', async (event, config) => {
         sendLog('Iniciando comunicação com Bitbucket API...', '#89b4fa', 'copiar');
         
         // 1. Obter DiffStat
-        const diffUrl = `https://api.bitbucket.org/2.0/repositories/${workspace}/${repo}/diffstat/${branch}..${base}`;
+        const diffUrl = `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repo)}/diffstat/${encodeURIComponent(branch)}..${encodeURIComponent(base)}`;
         const diffRes = await fetch(diffUrl, { headers });
         
         if (!diffRes.ok) {
