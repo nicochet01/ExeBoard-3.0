@@ -19,6 +19,20 @@ log.info('Caminho Executável:', app.getPath('exe'));
 let mainWindow;
 let tray;
 
+// Em desenvolvimento, isola o userData para evitar colisão de lock com o ExeBoard instalado
+if (!app.isPackaged) {
+    const devUserData = path.join(app.getPath('appData'), 'ExeBoard-Dev');
+    fs.ensureDirSync(devUserData);
+    const prodConfig = path.join(app.getPath('appData'), 'ExeBoard', 'configuracoes.json');
+    const devConfig = path.join(devUserData, 'configuracoes.json');
+    if (!fs.existsSync(devConfig) && fs.existsSync(prodConfig)) {
+        try {
+            fs.copyFileSync(prodConfig, devConfig);
+        } catch (e) { }
+    }
+    app.setPath('userData', devUserData);
+}
+
 // Caminho unificado: AppData (userData) é a única fonte de verdade
 const userDataPath = app.getPath('userData');
 const activeJsonPath = path.join(userDataPath, 'configuracoes.json');
@@ -29,6 +43,9 @@ let configCache = { GERAL: { HABILITAR_TRAY: '0' } }; // Cache local para regras
 const COPY_BUFFER_SIZE = 1048576; // 1MB
 const MAX_RETRIES = 5;
 const RETRY_DELAY_MS = 2000;
+
+// Garante o sufixo .exe de forma case-insensitive (evita duplicar em nomes como "Servico.EXE")
+const ensureExeSuffix = (name) => (name && !name.toLowerCase().endsWith('.exe')) ? name + '.exe' : name;
 
 app.isQuiting = false; // Inicializa a flag de fechamento real
 
@@ -181,9 +198,36 @@ function createTray() {
     }
 }
 
+// Limpeza automática de arquivos .tmp na inicialização
+async function limparArquivosTemporarios() {
+    try {
+        const pathsToClean = [];
+        if (configCache?.CAMINHOS) {
+            if (configCache.CAMINHOS.DESTINO_CLIENTES) pathsToClean.push(configCache.CAMINHOS.DESTINO_CLIENTES);
+            if (configCache.CAMINHOS.DESTINO_SERVIDORES) pathsToClean.push(configCache.CAMINHOS.DESTINO_SERVIDORES);
+            if (configCache.CAMINHOS.DESTINO_ATUALIZADORES) pathsToClean.push(configCache.CAMINHOS.DESTINO_ATUALIZADORES);
+        }
+        for (const rootDir of pathsToClean) {
+            if (!rootDir || rootDir.includes('Informe') || !(await fs.pathExists(rootDir))) continue;
+            // Recursivo: cópias reais gravam .tmp dentro de subpastas (ex: Clientes\ClienteX\Exes\arquivo.exe.tmp)
+            const entries = await fs.readdir(rootDir, { recursive: true }).catch(() => []);
+            for (const item of entries) {
+                if (item.endsWith('.tmp')) {
+                    const full = path.join(rootDir, item);
+                    await fs.unlink(full).catch(() => {});
+                    log.info(`Arquivo temporário órfão removido: ${full}`);
+                }
+            }
+        }
+    } catch (e) {
+        log.warn('Aviso ao limpar arquivos temporários:', e.message);
+    }
+}
+
 app.whenReady().then(async () => {
     await loadConfig(); // Carrega configs antes de criar a UI
     console.log('Config JSON Carregada. Tray Ativo:', configCache.GERAL?.HABILITAR_TRAY);
+    await limparArquivosTemporarios();
     createWindow();
     createTray();
 
@@ -402,7 +446,7 @@ ipcMain.handle('check-status', async (event, srv) => {
             });
         } else {
             // Processo App (.exe)
-            const procName = srv.Nome.endsWith('.exe');
+            const procName = ensureExeSuffix(srv.Nome);
             exec(`tasklist /FI "IMAGENAME eq ${procName}" /NH`, (err, stdout) => {
                 if (stdout.includes(procName)) resolve('running');
                 else resolve('stopped'); // não detecta transição em .exe normal por tasklist simple
@@ -421,7 +465,8 @@ ipcMain.handle('detectar-tipo', async (event, nome) => {
     });
 });
 
-// Helper para aguardar status de serviço
+// Helper para aguardar status de serviço (polling mais rápido: 400ms em vez de 1s,
+// pra não somar latência desnecessária no start/stop/restart de cada serviço)
 const waitForServiceStatus = (name, targetStatus, timeoutMs = 20000) => {
     return new Promise(resolve => {
         const start = Date.now();
@@ -429,18 +474,32 @@ const waitForServiceStatus = (name, targetStatus, timeoutMs = 20000) => {
             exec(`sc query "${name}"`, (err, stdout) => {
                 if (stdout.includes(targetStatus)) return resolve(true);
                 if (Date.now() - start > timeoutMs) return resolve(false);
-                setTimeout(check, 1000);
+                setTimeout(check, 400);
             });
         };
         check();
     });
 };
 
+// Verifica se um processo (pelo nome do .exe) ainda está de pé — via tasklist, não via status do SCM
+// (o SCM pode reportar "STOPPED" antes do processo liberar de fato o handle do arquivo)
+const isProcessRunning = (exeName) => new Promise((resolve) => {
+    exec(`tasklist /FI "IMAGENAME eq ${exeName}" /NH`, (err, stdout) => {
+        resolve(!!stdout && stdout.toLowerCase().includes(exeName.toLowerCase()));
+    });
+});
+
+// Detecta "acesso negado" ao controlar serviços/processos (sc/taskkill exigem privilégio de Administrador)
+const isAccessDeniedError = (error, stdout, stderr) => {
+    const text = `${stdout || ''} ${stderr || ''} ${error ? error.message : ''}`.toLowerCase();
+    return (error && error.code === 5) || text.includes('acesso negado') || text.includes('access is denied') || text.includes('access denied');
+};
+
 // Controle explícito
 ipcMain.handle('manage-server', async (event, { srv, action }) => {
     return new Promise((resolve) => {
         const sendUiLog = (text, c = '#a6adc8') => { sendLog(text, c, 'servidores'); };
-        const procName = srv.Nome.endsWith('.exe') ? srv.Nome : srv.Nome + '.exe';
+        const procName = ensureExeSuffix(srv.Nome);
         const pureName = srv.Nome;
 
         if (action === 'start') {
@@ -464,18 +523,57 @@ ipcMain.handle('manage-server', async (event, { srv, action }) => {
             if (srv.Tipo === 'Servico') {
                 exec(`sc stop "${pureName}"`, async (error, stdout, stderr) => {
                     let out = (stdout || stderr || '').trim();
+
+                    if (isAccessDeniedError(error, stdout, stderr)) {
+                        const msg = `Acesso negado ao parar "${pureName}". Feche o ExeBoard e abra-o novamente como Administrador (clique com o botão direito > Executar como administrador) antes de copiar.`;
+                        sendUiLog(msg, '#f38ba8');
+                        sendLog(`ERRO: ${msg}`, '#f38ba8', 'copiar');
+                        resolve(false);
+                        return;
+                    }
+
                     if (error && !out.includes("1062")) {
                         sendUiLog(`Aviso STOP ${pureName}: ${out || error.message}`, '#fab387');
                     }
-                    // Aguarda o stop ou força kill
+                    // Aguarda o stop "oficial" do SCM
                     await waitForServiceStatus(pureName, 'STOPPED', 10000);
-                    exec(`taskkill /F /IM "${procName}"`, () => {
-                        if (action === 'stop') sendUiLog(`${pureName} parado.`, '#f38ba8');
-                        resolve(true);
-                    });
+
+                    // Confirma via tasklist que o processo realmente não está mais de pé (o SCM pode
+                    // reportar STOPPED antes do handle do arquivo ser liberado) e, caso o serviço tenha
+                    // uma ação de recuperação configurada para reiniciar sozinho, mata de novo — repete
+                    // por alguns segundos até o processo ficar de fato parado.
+                    let deniedOnKill = false;
+                    for (let i = 0; i < 8; i++) {
+                        const running = await isProcessRunning(procName);
+                        if (!running) break;
+                        const killResult = await new Promise((res) => exec(`taskkill /F /IM "${procName}"`, (e, so, se) => res({ e, so, se })));
+                        if (isAccessDeniedError(killResult.e, killResult.so, killResult.se)) {
+                            deniedOnKill = true;
+                            break;
+                        }
+                        await new Promise(r => setTimeout(r, 500));
+                    }
+
+                    if (deniedOnKill) {
+                        const msg = `Acesso negado ao encerrar "${procName}". Execute o ExeBoard como Administrador antes de copiar.`;
+                        sendUiLog(msg, '#f38ba8');
+                        sendLog(`ERRO: ${msg}`, '#f38ba8', 'copiar');
+                        resolve(false);
+                        return;
+                    }
+
+                    if (action === 'stop') sendUiLog(`${pureName} parado.`, '#f38ba8');
+                    resolve(true);
                 });
             } else {
-                exec(`taskkill /F /IM "${procName}"`, () => {
+                exec(`taskkill /F /IM "${procName}"`, (error, stdout, stderr) => {
+                    if (isAccessDeniedError(error, stdout, stderr)) {
+                        const msg = `Acesso negado ao encerrar "${procName}". Execute o ExeBoard como Administrador antes de copiar.`;
+                        sendUiLog(msg, '#f38ba8');
+                        sendLog(`ERRO: ${msg}`, '#f38ba8', 'copiar');
+                        resolve(false);
+                        return;
+                    }
                     sendUiLog(`KILL enviado para ${procName}`, '#f38ba8');
                     resolve(true);
                 });
@@ -484,90 +582,189 @@ ipcMain.handle('manage-server', async (event, { srv, action }) => {
     });
 });
 
-// ==== NOVO MOTOR DE CÓPIA SEGURO (Transacional) ====
+// ==== NOVO MOTOR DE CÓPIA SEGURO (Transacional com Native Copy) ====
+
+// Acima deste tamanho, usa cópia em stream (mais lenta) em vez de fs.copyFile nativo, pois
+// fs.copyFile não pode ser interrompido no meio — um clique em "Cancelar" só faria efeito
+// depois que o arquivo inteiro terminasse de copiar.
+const LARGE_FILE_STREAM_THRESHOLD = 200 * 1024 * 1024; // 200MB
+
+// Cópia em stream que respeita copyCancelToken durante a transferência (chunk a chunk)
+const streamCopyWithCancel = (src, tempDest) => new Promise((resolve, reject) => {
+    const readStream = createReadStream(src, { highWaterMark: COPY_BUFFER_SIZE });
+    const writeStream = createWriteStream(tempDest);
+    let cancelled = false;
+    let settled = false;
+
+    const finish = (err) => {
+        if (settled) return;
+        settled = true;
+        if (err) reject(err); else resolve();
+    };
+
+    readStream.on('data', () => {
+        if (!cancelled && copyCancelToken) {
+            cancelled = true;
+            readStream.destroy();
+            writeStream.destroy();
+        }
+    });
+
+    readStream.on('error', finish);
+    writeStream.on('error', finish);
+    writeStream.on('finish', () => finish(cancelled ? new Error('CANCELLED') : null));
+
+    readStream.pipe(writeStream);
+});
 
 const secureCopyFile = async (src, dest) => {
     let attempts = 0;
     while (attempts < MAX_RETRIES) {
         if (copyCancelToken) return 'cancelled';
 
+        const tempDest = dest + '.tmp';
         try {
             // Remove ReadOnly se existir no destino
-            if (fs.existsSync(dest)) await fs.chmod(dest, 0o666).catch(() => { });
+            if (await fs.pathExists(dest)) {
+                await fs.chmod(dest, 0o666).catch(() => { });
+            }
 
-            const tempDest = dest + '.tmp';
-            await new Promise((resolve, reject) => {
-                const readStream = createReadStream(src, { highWaterMark: COPY_BUFFER_SIZE });
-                const writeStream = createWriteStream(tempDest);
+            const stats = await fs.stat(src).catch(() => null);
+            if (stats && stats.size > LARGE_FILE_STREAM_THRESHOLD) {
+                // Arquivo grande: cópia em stream, cancelável durante a transferência
+                await streamCopyWithCancel(src, tempDest);
+            } else {
+                // Cópia nativa direta no nível de kernel do SO (mais rápida para o caso comum)
+                await fs.copyFile(src, tempDest);
+            }
 
-                readStream.on('error', reject);
-                writeStream.on('error', reject);
-                writeStream.on('finish', resolve);
+            if (copyCancelToken) {
+                await fs.unlink(tempDest).catch(() => { });
+                return 'cancelled';
+            }
 
-                readStream.on('data', () => {
-                    if (copyCancelToken) {
-                        readStream.destroy();
-                        writeStream.destroy();
-                        reject(new Error('CANCELLED'));
-                    }
-                });
-
-                readStream.pipe(writeStream);
-            });
-
-            // Swap Inteligente: Move do temporário para o destino. 
-            // fs.move lida com EXDEV (movimentação entre discos/volumes diferentes)
-            if (fs.existsSync(dest)) await fs.unlink(dest);
+            // Swap Atômico: move do temporário para o destino final
             await fs.move(tempDest, dest, { overwrite: true });
             return 'ok';
 
         } catch (err) {
-            if (err.message === 'CANCELLED') return 'cancelled';
+            await fs.unlink(tempDest).catch(() => { });
+            if (copyCancelToken || err.message === 'CANCELLED') return 'cancelled';
+
             attempts++;
+            const isLockError = err.code === 'EPERM' || err.code === 'EBUSY';
+
             if (attempts < MAX_RETRIES) {
                 sendLog(`Tentativa ${attempts} falhou p/ ${path.basename(dest)}. Falha física ou arquivo preso. Retentando...`, '#fab387', 'copiar');
+
+                // EPERM/EBUSY no destino normalmente significa que o processo ainda está de pé
+                // (não terminou a tempo do "Parar Serviço/App" inicial, ou é reiniciado por um watchdog).
+                // Antes de tentar de novo, força o encerramento pelo nome do executável de destino.
+                if (isLockError) {
+                    const destExeName = path.basename(dest);
+                    if (destExeName.toLowerCase().endsWith('.exe')) {
+                        await new Promise((resolve) => exec(`taskkill /F /IM "${destExeName}"`, () => resolve()));
+                    }
+                }
+
                 await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
             } else {
+                // Esgotou as tentativas: se for erro de lock/permissão e nenhum processo com esse nome
+                // estiver rodando, é provável falta de privilégio de Administrador — deixa isso claro,
+                // mas sem pular retries antes (podia ser um lock transitório de outro processo/serviço,
+                // ex: um motor de banco de dados segurando um .fdb com um nome de processo diferente).
+                if (isLockError && !(await isProcessRunning(path.basename(dest)))) {
+                    const msg = `Falha persistente ao gravar em "${dest}" mesmo sem nenhum processo travando o arquivo pelo nome. Se o problema persistir, feche o ExeBoard e abra-o novamente como Administrador.`;
+                    sendLog(`ERRO: ${msg}`, '#f38ba8', 'copiar');
+                }
                 throw err;
             }
         }
     }
 };
 
-// Indexador Stack-based (Arquivo e Pastas)
+// Pastas ignoradas para varredura ultrarrápida (metadados e controle de versão)
+const IGNORED_SCAN_DIRS = new Set(['.git', '.svn', '.vs', '.idea', '.vscode', 'node_modules', '__pycache__']);
+
+// Indexador Otimizado Stack-based (Arquivos e Pastas com Stat Paralelo)
 const indexarDiretorio = async (startDir) => {
-    const fileMap = new Map(); // Key: fileName.toLowerCase(), Value: { fullPath, mtime }
-    const dirMap = new Map();  // Key: dirName.toLowerCase(), Value: { fullPath }
+    const fileMap = new Map(); // Key: fileName.toLowerCase(), Value: { fullPath, mtime, size }
+    const dirMap = new Map();  // Key: dirName/relPath, Value: { fullPath }
+    const ambiguousDirNames = new Set(); // Nomes de pasta (sem prefixo) que existem em mais de um lugar da árvore
     const stack = [startDir];
 
     while (stack.length > 0) {
         const currentDir = stack.pop();
+        let entries;
         try {
-            const entries = await fs.readdir(currentDir, { withFileTypes: true });
-            for (const entry of entries) {
-                try {
-                    const fullPath = path.join(currentDir, entry.name);
-                    const name = entry.name.toLowerCase();
-
-                    if (entry.isDirectory()) {
-                        stack.push(fullPath);
-                        // No Smart Mapping, a pasta mais recente ou primeira encontrada? 
-                        // Geralmente pastas de BD não duplicam nomes na branch.
-                        if (!dirMap.has(name)) dirMap.set(name, { fullPath });
-                    } else {
-                        const stats = await fs.stat(fullPath);
-                        const mtime = stats.mtimeMs;
-                        if (!fileMap.has(name) || mtime > fileMap.get(name).mtime) {
-                            fileMap.set(name, { fullPath, mtime });
-                        }
-                    }
-                } catch (errItem) { }
-            }
+            entries = await fs.readdir(currentDir, { withFileTypes: true });
         } catch (e) {
             sendLog(`Aviso: Pasta ignorada (Acesso Negado): ${currentDir}`, '#fe640b', 'copiar');
+            continue;
+        }
+
+        const fileEntries = [];
+
+        for (const entry of entries) {
+            try {
+                const name = entry.name.toLowerCase();
+                const fullPath = path.join(currentDir, entry.name);
+
+                if (entry.isDirectory()) {
+                    if (IGNORED_SCAN_DIRS.has(name)) continue;
+                    stack.push(fullPath);
+
+                    const relPath = path.relative(startDir, fullPath).toLowerCase().replace(/\//g, '\\');
+                    if (!dirMap.has(name)) {
+                        dirMap.set(name, { fullPath });
+                    } else if (dirMap.get(name).fullPath !== fullPath) {
+                        ambiguousDirNames.add(name);
+                    }
+                    if (!dirMap.has(relPath)) dirMap.set(relPath, { fullPath });
+                } else {
+                    fileEntries.push({ name, fullPath });
+                }
+            } catch (e) {
+                sendLog(`Aviso: Item ignorado dentro de ${currentDir}: ${entry.name}`, '#fe640b', 'copiar');
+            }
+        }
+
+        // Processa stats dos arquivos em lotes paralelos de 25
+        const BATCH_SIZE = 25;
+        for (let i = 0; i < fileEntries.length; i += BATCH_SIZE) {
+            const batch = fileEntries.slice(i, i + BATCH_SIZE);
+            await Promise.all(batch.map(async (file) => {
+                try {
+                    const stats = await fs.stat(file.fullPath);
+                    const mtime = stats.mtimeMs;
+                    const existing = fileMap.get(file.name);
+                    if (!existing || mtime > existing.mtime) {
+                        fileMap.set(file.name, { fullPath: file.fullPath, mtime, size: stats.size });
+                    }
+                } catch (e) { }
+            }));
         }
     }
-    return { fileMap, dirMap };
+    return { fileMap, dirMap, ambiguousDirNames };
+};
+
+// Cache de indexação para unificar varredura (validate-branch + build-queue usam mesmo scan).
+// TTL curto: o objetivo é só evitar escanear a árvore duas vezes dentro do mesmo clique em
+// "Copiar Dados" (validate-branch seguido de build-queue) — não sobreviver a retentativas do
+// usuário depois de alterar/rebuildar a Branch.
+const BRANCH_CACHE_TTL_MS = 8000;
+let branchScanCache = { path: '', timestamp: 0, data: null };
+
+const getCachedBranchIndex = async (dirPath) => {
+    const normalized = path.normalize(dirPath).toLowerCase();
+    if (branchScanCache.data &&
+        branchScanCache.path === normalized &&
+        (Date.now() - branchScanCache.timestamp < BRANCH_CACHE_TTL_MS)) {
+        return branchScanCache.data;
+    }
+    const result = await indexarDiretorio(dirPath);
+    branchScanCache = { path: normalized, timestamp: Date.now(), data: result };
+    return result;
 };
 
 // ==== MOTOR RECURSIVO PARA ATUALIZADORES (BD) ====
@@ -578,7 +775,6 @@ const copyFolderRecursive = async (src, dest) => {
         const stats = await fs.stat(src);
         if (!stats.isDirectory()) return 'error_not_dir';
 
-        // Passo B: Cria o molde
         if (!fs.existsSync(dest)) {
             await fs.ensureDir(dest);
             sendLog(`Criado diretório: ${path.basename(dest)}`, '#bac2de', 'copiar');
@@ -594,7 +790,6 @@ const copyFolderRecursive = async (src, dest) => {
             if (entry.isDirectory()) {
                 await copyFolderRecursive(sPath, dPath);
             } else {
-                // Passo C: Sobrescrita de arquivos (.cds, .xml, .sql)
                 await secureCopyFile(sPath, dPath);
             }
         }
@@ -604,19 +799,41 @@ const copyFolderRecursive = async (src, dest) => {
     }
 };
 
+// Motor de Cópia Concorrente com 4 Trabalhadores Simultâneos e Barra de Progresso
 ipcMain.handle('execute-copy-files', async (event, queueData) => {
     copyCancelToken = false;
     let errors = 0;
     let news = 0;
+    let skipped = 0;
+    let completedCount = 0;
+    const total = queueData.length;
 
-    for (const task of queueData) {
-        if (copyCancelToken) break;
+    const emitProgress = (fileName) => {
+        const percent = total > 0 ? Math.round((completedCount / total) * 100) : 0;
+        if (mainWindow) {
+            mainWindow.webContents.send('copy-progress', {
+                current: completedCount,
+                total,
+                percent,
+                fileName: fileName || ''
+            });
+        }
+    };
+
+    emitProgress('');
+
+    const CONCURRENCY = 4;
+    let taskIndex = 0;
+
+    const processTask = async (task) => {
+        if (copyCancelToken) return;
 
         try {
             const srcExists = await fs.pathExists(task.origem);
             if (!srcExists) {
                 sendLog(`PULANDO: Origem não encontrada [${task.origem}]`, '#bac2de', 'copiar');
-                continue;
+                skipped++;
+                return;
             }
 
             const isNew = !(await fs.pathExists(task.destino));
@@ -624,36 +841,45 @@ ipcMain.handle('execute-copy-files', async (event, queueData) => {
             if (task.type === 'bd') {
                 // Cópia Recursiva de Pasta
                 const res = await copyFolderRecursive(task.origem, task.destino);
-                if (res === 'cancelled') break;
-                news++; // Cada tarefa de pasta conta como 1
+                if (res === 'cancelled') { skipped++; return; }
+                news++;
                 sendLog(`PASTA ATUALIZADA: ${path.basename(task.destino)}`, '#40a02b', 'copiar');
             } else {
                 // Cópia de Arquivo Único
                 await fs.ensureDir(path.dirname(task.destino));
                 const res = await secureCopyFile(task.origem, task.destino);
-                if (res === 'cancelled') {
-                    await fs.unlink(task.destino + '.tmp').catch(() => { });
-                    break;
-                }
+                if (res === 'cancelled') { skipped++; return; }
 
-                news++; // Contabiliza cada arquivo processado com sucesso
+                news++;
                 if (isNew) {
                     sendLog(`NOVO ARQUIVO (Instalação Limpa): ${path.basename(task.destino)}`, '#d65d0e', 'copiar');
                 } else {
                     sendLog(`ATUALIZADO: ${task.destino}`, '#40a02b', 'copiar');
                 }
             }
-
         } catch (err) {
             errors++;
             sendLog(`ERRO FATAL em ${task.origem}: ${err.message}`, '#f38ba8', 'copiar');
+        } finally {
+            completedCount++;
+            emitProgress(path.basename(task.destino));
         }
-    }
+    };
 
-    return { status: copyCancelToken ? 'cancelled' : 'completed', errors, news };
+    const workers = Array.from({ length: Math.min(CONCURRENCY, total) }, async () => {
+        while (taskIndex < total) {
+            if (copyCancelToken) break;
+            const currentTask = queueData[taskIndex++];
+            await processTask(currentTask);
+        }
+    });
+
+    await Promise.all(workers);
+
+    return { status: copyCancelToken ? 'cancelled' : 'completed', errors, news, skipped };
 });
 
-// Novo build-queue com Inteligência de Mapeamento (Fire and Forget)
+// Build-queue com Mapeamento Unificado e Resolução de Caminhos
 ipcMain.handle('build-queue', async (event, { reqs, branchRoot }) => {
     const queue = [];
     const learnedPaths = []; // [{type, name, subFolder}]
@@ -662,14 +888,16 @@ ipcMain.handle('build-queue', async (event, { reqs, branchRoot }) => {
     try {
         sendLog(`Mapeando Branch: ${branchRoot}`, '#89b4fa', 'copiar');
 
-        // 1. Mapeia a Branch Inteira (Origem) usando a RAIZ fornecida
-        const indexingResults = await indexarDiretorio(branchRoot);
+        // 1. Mapeia a Branch usando Cache Unificado
+        const indexingResults = await getCachedBranchIndex(branchRoot);
         const sourceFileMap = indexingResults.fileMap;
         const sourceDirMap = indexingResults.dirMap;
+        const ambiguousDirNames = indexingResults.ambiguousDirNames || new Set();
+        const claimedDestinos = new Set(); // Evita que dois itens da fila apontem para o mesmo destino (corrida na cópia concorrente)
 
         if (sourceFileMap.size === 0 && sourceDirMap.size === 0) {
             sendLog('AVISO: Nenhum arquivo ou pasta encontrado na Branch.', '#f38ba8', 'copiar');
-            return queue;
+            return { queue, learnedPaths };
         }
 
         // 2. Busca Híbrida Seletiva (Scan apenas se houver itens sem subpasta definida)
@@ -689,11 +917,20 @@ ipcMain.handle('build-queue', async (event, { reqs, branchRoot }) => {
             let pureName = (req.type === 'client' || req.type === 'server' ? req.itemData.Nome : req.itemData.Nome || req.itemData).toLowerCase();
 
             if (req.type === 'bd') {
-                // Lógica de Atualizadores (Pastas)
-                let sourceFolder = sourceDirMap.get(pureName);
+                // Lógica de Atualizadores (Pastas) com Fallback Inteligente
+                const cleanBdName = pureName.replace(/^(bd|dados)[\\\/]/i, '').trim();
+                let sourceFolder = sourceDirMap.get(pureName) ||
+                                   sourceDirMap.get('bd\\' + cleanBdName) ||
+                                   sourceDirMap.get('dados\\' + cleanBdName);
+
+                // Último fallback (nome puro, sem prefixo) só é seguro quando existe UMA única pasta
+                // com esse nome na árvore inteira — caso contrário poderíamos copiar dados da pasta errada.
                 if (!sourceFolder) {
-                    // Tenta Fallback para \BD\Nome
-                    sourceFolder = sourceDirMap.get('bd\\' + pureName) || sourceDirMap.get('dados\\' + pureName);
+                    if (ambiguousDirNames.has(cleanBdName)) {
+                        sendLog(`X Ambíguo: existem várias pastas chamadas "${cleanBdName}" na Branch. Organize-a em bd\\${cleanBdName} ou dados\\${cleanBdName} para evitar copiar a pasta errada.`, '#f38ba8', 'copiar');
+                        continue;
+                    }
+                    sourceFolder = sourceDirMap.get(cleanBdName);
                 }
 
                 if (!sourceFolder) {
@@ -701,9 +938,16 @@ ipcMain.handle('build-queue', async (event, { reqs, branchRoot }) => {
                     continue;
                 }
 
+                const destino = path.join(req.destDir, path.basename(sourceFolder.fullPath));
+                if (claimedDestinos.has(destino)) {
+                    sendLog(`X Destino duplicado ignorado (já reivindicado por outro item selecionado): ${destino}`, '#f38ba8', 'copiar');
+                    continue;
+                }
+                claimedDestinos.add(destino);
+
                 queue.push({
                     origem: sourceFolder.fullPath,
-                    destino: path.join(req.destDir, path.basename(sourceFolder.fullPath)),
+                    destino,
                     type: 'bd'
                 });
             } else {
@@ -751,6 +995,12 @@ ipcMain.handle('build-queue', async (event, { reqs, branchRoot }) => {
                 }
 
                 finalDest = path.join(req.destDir, sub, finalFileName);
+
+                if (claimedDestinos.has(finalDest)) {
+                    sendLog(`X Destino duplicado ignorado (já reivindicado por outro item selecionado): ${finalDest}`, '#f38ba8', 'copiar');
+                    continue;
+                }
+                claimedDestinos.add(finalDest);
 
                 queue.push({
                     origem: sourceFile.fullPath,
@@ -872,7 +1122,7 @@ ipcMain.handle('open-external-url', async (event, url) => {
 // ==== ITEM 2: Fechar processos clientes antes da cópia ====
 ipcMain.handle('kill-process', async (event, processName) => {
     return new Promise((resolve) => {
-        const name = processName.endsWith('.exe') ? processName : processName + '.exe';
+        const name = ensureExeSuffix(processName);
         exec(`taskkill /F /IM "${name}"`, (err, stdout, stderr) => {
             if (err) {
                 resolve({ killed: false, msg: (stderr || err.message).trim() });
@@ -895,7 +1145,7 @@ ipcMain.handle('validate-branch', async (event, { branchPath, fileNames }) => {
             return { valid: true };
         }
 
-        const { fileMap } = await indexarDiretorio(branchPath);
+        const { fileMap } = await getCachedBranchIndex(branchPath);
 
         const missing = [];
         for (const name of fileNames) {
@@ -927,8 +1177,33 @@ ipcMain.handle('extract-bitbucket', async (event, config) => {
     try {
         sendLog('Iniciando comunicação com Bitbucket API...', '#89b4fa', 'copiar');
         
-        // 1. Obter DiffStat
-        const diffUrl = `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repo)}/diffstat/${encodeURIComponent(branch)}..${encodeURIComponent(base)}`;
+        // 1. Obter Hashes das Branches
+        const getHash = async (bName) => {
+            const q = `name = "${bName}"`;
+            const u = `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repo)}/refs/branches?q=${encodeURIComponent(q)}`;
+            const r = await fetch(u, { headers });
+            if (!r.ok) throw new Error(`Erro na API ao buscar a branch: ${bName}`);
+            const d = await r.json();
+            if (!d.values || d.values.length === 0) return null;
+            return d.values[0].target.hash;
+        };
+
+        const baseHash = await getHash(base);
+        if (!baseHash) {
+            sendLog(`ERRO: A branch base '${base}' não foi encontrada no repositório.`, '#f38ba8', 'copiar');
+            return { success: false, msg: `Branch base '${base}' não encontrada.` };
+        }
+
+        const branchHash = await getHash(branch);
+        if (!branchHash) {
+            sendLog(`ERRO: A branch da tarefa '${branch}' não foi encontrada no repositório.`, '#f38ba8', 'copiar');
+            return { success: false, msg: `Branch da tarefa '${branch}' não encontrada.` };
+        }
+
+        sendLog(`Branches localizadas. Hashes: ${branchHash.substring(0,7)}..${baseHash.substring(0,7)}`, '#a6adc8', 'copiar');
+
+        // 2. Obter DiffStat usando os Hashes
+        const diffUrl = `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repo)}/diffstat/${branchHash}..${baseHash}`;
         const diffRes = await fetch(diffUrl, { headers });
         
         if (!diffRes.ok) {

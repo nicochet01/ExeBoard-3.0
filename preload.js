@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('api', {
 
     // Logs
     onLogMessage: (callback) => ipcRenderer.on('log-message', (_event, data) => callback(data)),
+    onCopyProgress: (callback) => ipcRenderer.on('copy-progress', (_event, data) => callback(data)),
 
     // Mensagem de aviso
     onInstanceWarning: (callback) => ipcRenderer.on('show-instance-warning', callback),

@@ -32,6 +32,11 @@ const LOG_COLORS = {
     error: '#f38ba8' // Red
 };
 
+// Garante o sufixo .exe de forma case-insensitive (evita duplicar em nomes como "Servico.EXE")
+function ensureExeSuffix(name) {
+    return (name && !name.toLowerCase().endsWith('.exe')) ? name + '.exe' : name;
+}
+
 // Escuta o aviso do sistema de que o app já estava aberto
 if (window.api && window.api.onInstanceWarning) {
     window.api.onInstanceWarning(() => {
@@ -386,6 +391,10 @@ async function init() {
     
     appendLog('Renderizando listas...', '#89b4fa', 'copiar');
     renderLists();
+    if (fullConfig.ULTIMA_COPIA) {
+        applySavedSelection(fullConfig.ULTIMA_COPIA);
+        appendLog('Última seleção de executáveis restaurada.', '#cba6f7', 'copiar');
+    }
     startPolling();
     
     appendLog('Verificando privilégios de Administrador...', '#89b4fa', 'copiar');
@@ -458,10 +467,12 @@ window.batchServerAction = async (action) => {
     const blockBtn = window.event ? window.event.target : null;
     if (blockBtn) blockBtn.disabled = true;
 
-    for(let i=0; i<chks.length; i++) {
-        const c = chks[i];
+    // Em paralelo — cada servidor/serviço é independente dos demais, então não há motivo
+    // pra esperar um terminar antes de começar o próximo (o que antes multiplicava o tempo
+    // total pelo número de itens selecionados).
+    await Promise.all(Array.from(chks).map(async (c) => {
         const srv = JSON.parse(c.value);
-        if(action === 'restart') {
+        if (action === 'restart') {
             const cbId = c.closest('.server-item');
             if (cbId) {
                 cbId.dataset.status = 'transition';
@@ -475,29 +486,65 @@ window.batchServerAction = async (action) => {
             appendLog(`${action === 'start' ? 'Iniciando' : 'Parando'} ${srv.Nome}...`, color, 'servidores');
             await window.api.manageServer({ srv, action });
         }
-    }
+    }));
     if (blockBtn) blockBtn.disabled = false;
 };
 
-// ==== Start Copy ====
-// ==== LÓGICA DE NAVEGAÇÃO DE DIRETÓRIO (Check Automacao) ====
-function calculateSourcePath(base, automacao) {
-    let clean = base.trim();
-    if (clean.endsWith('\\')) clean = clean.slice(0, -1);
-    
-    const parts = clean.split('\\');
-    const last = parts[parts.length - 1].toLowerCase();
+// ==== Helper: Memória da Última Cópia ====
+function applySavedSelection(ultimaCopia) {
+    if (!ultimaCopia) return;
 
-    // Se a pasta terminar com Exes, ExesAutomacao ou BD, sobe um nível
-    if (last === 'exes' || last === 'exesautomacao' || last === 'bd') {
-        parts.pop();
-        clean = parts.join('\\');
+    if (Array.isArray(ultimaCopia.clients)) {
+        document.querySelectorAll('.chk-client').forEach(cb => {
+            try {
+                const data = JSON.parse(cb.value);
+                cb.checked = ultimaCopia.clients.includes(data.Nome);
+            } catch (e) { }
+        });
     }
 
-    const finalSuffix = automacao ? 'ExesAutomacao' : 'Exes';
-    return clean + '\\' + finalSuffix;
+    if (Array.isArray(ultimaCopia.servers)) {
+        document.querySelectorAll('.chk-server').forEach(cb => {
+            try {
+                const data = JSON.parse(cb.value);
+                cb.checked = ultimaCopia.servers.includes(data.Nome);
+            } catch (e) { }
+        });
+    }
+
+    if (Array.isArray(ultimaCopia.bds)) {
+        document.querySelectorAll('.chk-bd').forEach(cb => {
+            cb.checked = ultimaCopia.bds.includes(cb.value);
+        });
+    }
+
+    const btnRepeat = document.getElementById('btnRepeatLastCopy');
+    if (btnRepeat) btnRepeat.style.display = 'inline-block';
 }
 
+document.getElementById('btnRepeatLastCopy')?.addEventListener('click', () => {
+    if (fullConfig.ULTIMA_COPIA) {
+        applySavedSelection(fullConfig.ULTIMA_COPIA);
+        appendLog('Seleção da última cópia reaplicada aos checkboxes.', LOG_COLORS.success, 'copiar');
+    }
+});
+
+// Listener de Progresso da Cópia em Tempo Real
+if (window.api && window.api.onCopyProgress) {
+    window.api.onCopyProgress(({ current, total, percent, fileName }) => {
+        const pContainer = document.getElementById('copyProgressContainer');
+        const pBar = document.getElementById('copyProgressBar');
+        const pCount = document.getElementById('copyProgressCount');
+        const pLabel = document.getElementById('copyProgressLabel');
+
+        if (pContainer) pContainer.style.display = 'block';
+        if (pBar) pBar.style.width = `${percent}%`;
+        if (pCount) pCount.textContent = `${current} / ${total}`;
+        if (pLabel && fileName) pLabel.textContent = `Copiando: ${fileName}`;
+    });
+}
+
+// ==== Start Copy ====
 document.getElementById('btnCopiarDados').addEventListener('click', async () => {
     const btn = document.getElementById('btnCopiarDados');
     
@@ -518,31 +565,57 @@ document.getElementById('btnCopiarDados').addEventListener('click', async () => 
         return;
     }
 
-    isCopying = true;
-    toggleUILock(true);
-    btn.textContent = "Cancelar Cópia";
-    btn.style.background = LOG_COLORS.error;
-    
-    await window.saveConfig(); 
-
-    const automacao = document.getElementById('cbModoAutomacao').checked;
-    const baseBranch = document.getElementById('edtCaminhoBranch').value;
-    const finalPath = calculateSourcePath(baseBranch, automacao);
-
-    if (automacao) appendLog(`MODO AUTOMAÇÃO: Redirecionando para ${finalPath}`, LOG_COLORS.automation, 'copiar');
+    const baseBranch = document.getElementById('edtCaminhoBranch').value.trim();
+    if (!baseBranch) {
+        showCustomModal("Caminho Obrigatório", "Por favor, informe o caminho da Branch de Origem.", "info");
+        return;
+    }
 
     let reqs = [];
     document.querySelectorAll('.chk-client:checked').forEach(c => reqs.push({destDir: document.getElementById('txtDestinoClientes').value, type:'client', itemData: JSON.parse(c.value)}));
     document.querySelectorAll('.chk-server:checked').forEach(c => reqs.push({destDir: document.getElementById('txtDestinoServidores').value, type:'server', itemData: JSON.parse(c.value)}));
     document.querySelectorAll('.chk-bd:checked').forEach(c => reqs.push({destDir: document.getElementById('txtDestinoAtualizadores').value, type:'bd', itemData: { Nome: c.value }}));
 
+    if (reqs.length === 0) {
+        showCustomModal("Seleção Vazia", "Selecione ao menos um executável ou atualizador para copiar.", "info");
+        return;
+    }
+
+    isCopying = true;
+    toggleUILock(true);
+    btn.textContent = "Cancelar Cópia";
+    btn.style.background = LOG_COLORS.error;
+    
+    await window.saveConfig();
+
+    // Salva a seleção atual na memória persistente
+    const currentSelection = {
+        clients: Array.from(document.querySelectorAll('.chk-client:checked')).map(c => JSON.parse(c.value).Nome),
+        servers: Array.from(document.querySelectorAll('.chk-server:checked')).map(c => JSON.parse(c.value).Nome),
+        bds: Array.from(document.querySelectorAll('.chk-bd:checked')).map(c => c.value),
+        timestamp: new Date().toISOString()
+    };
+    fullConfig.ULTIMA_COPIA = currentSelection;
+    await window.api.saveConfigSection('ULTIMA_COPIA', currentSelection).catch(() => {});
+    const btnRepeat = document.getElementById('btnRepeatLastCopy');
+    if (btnRepeat) btnRepeat.style.display = 'inline-block';
+
+    // Inicializa a barra de progresso visual
+    const pContainer = document.getElementById('copyProgressContainer');
+    const pBar = document.getElementById('copyProgressBar');
+    const pCount = document.getElementById('copyProgressCount');
+    const pLabel = document.getElementById('copyProgressLabel');
+
+    if (pContainer) pContainer.style.display = 'block';
+    if (pBar) pBar.style.width = '0%';
+    if (pCount) pCount.textContent = `0 / ${reqs.length}`;
+    if (pLabel) pLabel.textContent = 'Validando branch...';
+
     // === ITEM 3: Validação Inteligente da Branch ===
     const fileNamesToCheck = [];
     reqs.forEach(r => {
         if (r.type === 'client' || r.type === 'server') {
-            let name = r.itemData.Nome;
-            if (!name.toLowerCase().endsWith('.exe')) name += '.exe';
-            fileNamesToCheck.push(name);
+            fileNamesToCheck.push(ensureExeSuffix(r.itemData.Nome));
         }
     });
 
@@ -570,30 +643,31 @@ document.getElementById('btnCopiarDados').addEventListener('click', async () => 
         toggleUILock(false);
         btn.textContent = "Copiar Dados";
         btn.style.background = 'var(--accent)';
+        if (pContainer) pContainer.style.display = 'none';
         return;
     }
     appendLog('Branch validada com sucesso.', LOG_COLORS.success, 'copiar');
 
-    // === ITEM 2: Fechar Clientes antes da cópia ===
+    // === ITEM 2: Fechar Clientes antes da cópia (em paralelo — processos independentes) ===
     const checkedClients = Array.from(document.querySelectorAll('.chk-client:checked')).map(c => JSON.parse(c.value));
     if (checkedClients.length > 0) {
         appendLog('Encerrando aplicativos clientes selecionados...', LOG_COLORS.info, 'copiar');
-        for (const cli of checkedClients) {
-            let procName = cli.Nome;
-            if (!procName.toLowerCase().endsWith('.exe')) procName += '.exe';
+        await Promise.all(checkedClients.map(async (cli) => {
+            const procName = ensureExeSuffix(cli.Nome);
             const result = await window.api.killProcess(procName);
             if (result.killed) {
                 appendLog(`Processo ${procName} encerrado.`, LOG_COLORS.success, 'copiar');
             }
-        }
+        }));
     }
 
     const checkedServers = Array.from(document.querySelectorAll('.chk-server:checked')).map(c=>JSON.parse(c.value));
-    
+
     appendLog('Parando serviços/apps selecionados...', LOG_COLORS.info, 'copiar');
-    for(let srv of checkedServers) await window.api.manageServer({ srv, action: 'stop' });
+    await Promise.all(checkedServers.map(srv => window.api.manageServer({ srv, action: 'stop' })));
 
     try {
+        if (pLabel) pLabel.textContent = 'Mapeando arquivos na Branch...';
         const buildResult = await window.api.buildQueue({ reqs, branchRoot: baseBranch });
         const queue = buildResult.queue;
         const learnedPaths = buildResult.learnedPaths || [];
@@ -610,19 +684,33 @@ document.getElementById('btnCopiarDados').addEventListener('click', async () => 
             renderLists();
         }
 
+        if (pLabel) pLabel.textContent = 'Copiando arquivos...';
         const block = await window.api.executarCopia(queue);
 
         if (block.status === 'completed') {
-            appendLog(`Cópia finalizada. ${block.news} arquivos processados.`, LOG_COLORS.success, 'copiar');
-            
-            for(let srv of checkedServers) {
-                if (srv.Tipo === 'Servico') await window.api.manageServer({ srv, action: 'start' });
-            }
+            const skippedMsg = block.skipped ? ` (${block.skipped} ignorado(s))` : '';
+            const hasErrors = block.errors > 0;
+            const errorsMsg = hasErrors ? ` (${block.errors} com erro — veja o log acima)` : '';
+            appendLog(`Cópia finalizada. ${block.news} arquivos processados${skippedMsg}${errorsMsg}.`, hasErrors ? LOG_COLORS.retry : LOG_COLORS.success, 'copiar');
+            if (pBar) pBar.style.width = '100%';
+            if (pLabel) pLabel.textContent = hasErrors ? 'Concluído com erros' : 'Concluído com sucesso!';
+
+            await Promise.all(
+                checkedServers
+                    .filter(srv => srv.Tipo === 'Servico')
+                    .map(srv => window.api.manageServer({ srv, action: 'start' }))
+            );
         } else {
             appendLog(`Operação cancelada ou interrompida. Erros: ${block.errors}`, LOG_COLORS.error, 'copiar');
+            if (pLabel) pLabel.textContent = 'Cópia cancelada ou interrompida';
         }
     } catch (err) {
         appendLog(`ERRO CRÍTICO na comunicação: ${err.message}`, LOG_COLORS.error, 'copiar');
+        if (pLabel) pLabel.textContent = 'Erro durante a cópia';
+    } finally {
+        setTimeout(() => {
+            if (!isCopying && pContainer) pContainer.style.display = 'none';
+        }, 3000);
     }
 
     isCopying = false;
@@ -638,7 +726,6 @@ function toggleUILock(lock) {
     document.getElementById('txtDestinoClientes').disabled = lock;
     document.getElementById('txtDestinoServidores').disabled = lock;
     document.getElementById('txtDestinoAtualizadores').disabled = lock;
-    document.getElementById('cbModoAutomacao').disabled = lock;
 
     // Checkboxes das Listas
     document.querySelectorAll('.chk-client, .chk-server, .chk-bd').forEach(cb => cb.disabled = lock);
@@ -647,6 +734,8 @@ function toggleUILock(lock) {
     document.getElementById('btnCriarConexao').disabled = lock;
     document.getElementById('btnBuscarPath').disabled = lock;
     document.getElementById('btnAbrirAtualizador').disabled = lock;
+    const btnRepeat = document.getElementById('btnRepeatLastCopy');
+    if (btnRepeat) btnRepeat.disabled = lock;
     document.querySelectorAll('.btn-icon').forEach(b => b.disabled = lock);
 
     // Botões da Aba Configurações (Prevenção extra)
@@ -1584,8 +1673,36 @@ document.getElementById('btnVerifyBitbucket')?.addEventListener('click', async (
     
     try {
         const authHeader = 'Basic ' + btoa(`${cfg.user}:${cfg.appPassword}`);
-        const url = `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(cfg.workspace)}/${encodeURIComponent(cfg.repo)}/diffstat/${encodeURIComponent(cfg.branch)}..${encodeURIComponent(cfg.base)}`;
-        const res = await fetch(url, { headers: { 'Authorization': authHeader } });
+        const headers = { 'Authorization': authHeader };
+
+        // 1. Obter Hashes das Branches
+        const getHash = async (bName) => {
+            const q = `name = "${bName}"`;
+            const u = `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(cfg.workspace)}/${encodeURIComponent(cfg.repo)}/refs/branches?q=${encodeURIComponent(q)}`;
+            const r = await fetch(u, { headers });
+            if (!r.ok) throw new Error(`Erro na API ao buscar a branch: ${bName}`);
+            const d = await r.json();
+            if (!d.values || d.values.length === 0) return null;
+            return d.values[0].target.hash;
+        };
+
+        const baseHash = await getHash(cfg.base);
+        if (!baseHash) {
+            preview.innerHTML = `<span style="color: #f38ba8;">Erro: A branch base '${cfg.base}' não foi encontrada no repositório.</span>`;
+            preview.style.display = 'block';
+            return;
+        }
+
+        const branchHash = await getHash(cfg.branch);
+        if (!branchHash) {
+            preview.innerHTML = `<span style="color: #f38ba8;">Erro: A branch da tarefa '${cfg.branch}' não foi encontrada no repositório.</span>`;
+            preview.style.display = 'block';
+            return;
+        }
+
+        // 2. Obter DiffStat usando os Hashes
+        const url = `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(cfg.workspace)}/${encodeURIComponent(cfg.repo)}/diffstat/${branchHash}..${baseHash}`;
+        const res = await fetch(url, { headers });
         
         if (!res.ok) {
             const errText = await res.text();
@@ -1655,6 +1772,5 @@ document.getElementById('btnExtractBitbucket')?.addEventListener('click', async 
 // Botão para abrir o Modal do Bitbucket
 document.getElementById('btnOpenBitbucket')?.addEventListener('click', () => {
     document.getElementById('modalBitbucket').style.display = 'flex';
-    if (bbBranchCache.length === 0) fetchBitbucketBranches();
 });
 

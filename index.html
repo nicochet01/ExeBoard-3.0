@@ -44,22 +44,26 @@
                     </div>
                 </div>
 
-                <div style="margin-bottom: 10px;">
-                    <label class="custom-checkbox">
-                        <input type="checkbox" id="cbModoAutomacao">
-                        <span class="checkmark"></span>
-                        <span class="label-text">Usar Executáveis de Automação (ExesAutomacao)</span>
-                    </label>
-                </div>
 
                 <div class="glass-group">
                     <span class="group-title">Ações</span>
                     <div class="actions-row">
                         <button id="btnCopiarDados" class="btn-primary">Copiar Dados</button>
+                        <button id="btnRepeatLastCopy" class="btn-secondary" title="Restaura a seleção da última cópia realizada" style="display:none;">🔁 Repetir Seleção</button>
                         <button id="btnCriarConexao" class="btn-secondary"
                             onclick="alert('Criar conexão acionado via executável.')">Criar Conexão</button>
                         <button id="btnAbrirAtualizador" class="btn-secondary" onclick="openAtualizadoresModal()">Abrir
                             Atualizador</button>
+                    </div>
+                    <!-- Barra de Progresso da Cópia -->
+                    <div id="copyProgressContainer" style="display:none; margin-top:10px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                            <span id="copyProgressLabel" style="font-size:0.78rem; opacity:0.7;">Copiando...</span>
+                            <span id="copyProgressCount" style="font-size:0.78rem; font-weight:600; color:var(--accent);">0 / 0</span>
+                        </div>
+                        <div class="progress-track">
+                            <div id="copyProgressBar" class="progress-bar"></div>
+                        </div>
                     </div>
                 </div>
 
