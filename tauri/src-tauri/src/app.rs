@@ -16,8 +16,10 @@ use tauri_plugin_updater::UpdaterExt;
 /// Traz a janela principal para a frente (restaura se minimizada/escondida).
 fn mostrar_janela(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.unminimize();
+        // Ao minimizar, a janela é escondida JÁ minimizada: só show() a deixa só na barra de tarefas.
+        // Por isso: mostra, tira do estado minimizado e só então traz para a frente.
         let _ = w.show();
+        let _ = w.unminimize();
         let _ = w.set_always_on_top(true);
         let _ = w.set_always_on_top(false);
         let _ = w.set_focus();
@@ -42,10 +44,9 @@ fn criar_bandeja(app: &AppHandle) -> tauri::Result<()> {
         })
         .on_tray_icon_event(|tray, ev| match ev {
             TrayIconEvent::DoubleClick { .. } => mostrar_janela(tray.app_handle()),
+            // Clique simples também abre o painel (antes só chamava show() e a janela ficava minimizada)
             TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } => {
-                if let Some(w) = tray.app_handle().get_webview_window("main") {
-                    let _ = w.show();
-                }
+                mostrar_janela(tray.app_handle())
             }
             _ => {}
         });
