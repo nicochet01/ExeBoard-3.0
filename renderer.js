@@ -3,9 +3,18 @@ if (!window.api && typeof require !== 'undefined') {
     window.api = require('electron').ipcRenderer; // mock fallback just in case
 }
 
+// Configurações e Extrator Cloud abrem como telas por cima da área principal: ao navegar pelo menu, fecham
+function fecharTelasSobrepostas() {
+    const cfg = document.getElementById('modalSettings');
+    if (cfg && cfg.style.display === 'flex') document.getElementById('btnCloseSettings').click();
+    const bb = document.getElementById('modalBitbucket');
+    if (bb && bb.style.display !== 'none') bb.style.display = 'none';
+}
+
 // ==== Tabs Navigation ====
 document.querySelectorAll('.nav-links li').forEach(item => {
     item.addEventListener('click', () => {
+        fecharTelasSobrepostas();
         document.querySelectorAll('.nav-links li').forEach(li => li.classList.remove('active'));
         document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
         item.classList.add('active');
@@ -148,7 +157,33 @@ function renderLogEntry(entry) {
     }
 
     box.scrollTop = box.scrollHeight;
+    mostrarUltimaLinhaDoLog(entry);
 }
+
+// Barra recolhida do log: mostra só a última linha (com a cor da mensagem)
+function mostrarUltimaLinhaDoLog(entry) {
+    const peek = document.getElementById(entry.target === 'servidores' ? 'logPeekServidores' : 'logPeekCopiar');
+    if (!peek) return;
+    peek.textContent = `${entry.time}  ${entry.msg}`;
+    peek.style.color = entry.color;
+}
+
+// Abre ou recolhe a gaveta do log da aba
+window.toggleLog = (target = 'copiar') => {
+    const aba = document.getElementById(target === 'servidores' ? 'servidores' : 'copiar');
+    if (!aba) return;
+    const aberto = aba.classList.toggle('log-open');
+    const rotulo = aba.querySelector('.log-toggle-label');
+    if (rotulo) rotulo.textContent = aberto ? 'Recolher' : 'Abrir';
+    if (aberto) {
+        const box = document.getElementById(target === 'servidores' ? 'rtbLogServidores' : 'rtbLog');
+        if (box) box.scrollTop = box.scrollHeight;
+    }
+};
+// Enter e espaço também abrem a barra do log (acessibilidade por teclado)
+document.querySelectorAll('.logbar').forEach(bar => bar.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); bar.click(); }
+}));
 
 window.filterLogs = (type, target = 'copiar') => {
     const boxId = target === 'servidores' ? 'rtbLogServidores' : 'rtbLog';
@@ -167,18 +202,20 @@ window.limparLog = (target = 'copiar') => {
     logMemory = logMemory.filter(e => e.target !== target);
     const box = document.getElementById(target === 'servidores' ? 'rtbLogServidores' : 'rtbLog');
     if (box) box.innerHTML = '';
+    const peek = document.getElementById(target === 'servidores' ? 'logPeekServidores' : 'logPeekCopiar');
+    if (peek) peek.textContent = '';
 };
 
 // Seletor de filtro do log (Todos / Sucesso / Erros): marca o botão e aplica o filtro
-window.setLogFilter = (btn, type) => {
+window.setLogFilter = (btn, type, target = 'copiar') => {
     btn.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
-    filterLogs(type);
+    filterLogs(type, target);
 };
 
 if(window.api && window.api.onLogMessage) window.api.onLogMessage(appendLog);
 
 function markUnsaved() {
-    document.getElementById('lblUnsaved').textContent = '(Existem alterações não salvas. Vá descendo e salve as configs!)';
+    document.getElementById('lblUnsaved').textContent = 'Existem alterações não salvas. Clique em Salvar Alterações.';
 }
 
 // ==== Renders ====
@@ -242,8 +279,13 @@ function renderLists() {
                         <input type="checkbox" value='${payload}' class="chk-batch-server">
                         <span class="checkmark"></span>
                      </label>
-                     <span>${srv.Nome}</span>
+                     <span class="srv-name">${srv.Nome}</span>
                      <div class="indicator" id="ind_${idx}"></div>
+                     <div class="srv-actions">
+                        <button type="button" class="btn-icon-sm" title="Iniciar" onclick="serverRowAction('start', this)"><span class="i s i-play" aria-hidden="true"></span></button>
+                        <button type="button" class="btn-icon-sm" title="Parar" onclick="serverRowAction('stop', this)"><span class="i s i-stop" aria-hidden="true"></span></button>
+                        <button type="button" class="btn-icon-sm" title="Reiniciar" onclick="serverRowAction('restart', this)"><span class="i s i-refresh" aria-hidden="true"></span></button>
+                     </div>
                 </div>`;
         }
     });
@@ -256,10 +298,10 @@ function renderLists() {
     });
 
     // Dicas nas listas vazias (orientam quem acabou de instalar)
-    if (!cCont.innerHTML.trim()) cCont.innerHTML = emptyHint('Nenhum cliente cadastrado.<br>Abra a ⚙️ e use <b>Adicionar Exes</b> ou <b>Usar configuração padrão</b>.');
-    if (!sCont.innerHTML.trim()) sCont.innerHTML = emptyHint('Nenhum servidor cadastrado.<br>Abra a ⚙️ e use <b>Adicionar Exe</b> ou <b>Usar configuração padrão</b>.');
-    if (!bCont.innerHTML.trim()) bCont.innerHTML = emptyHint('Nenhuma pasta dos .cds cadastrada.<br>Abra a ⚙️ e use <b>Adicionar Pasta dos .cds</b> ou <b>Usar configuração padrão</b>.');
-    if (!actCont.innerHTML.trim()) actCont.innerHTML = emptyHint('Nenhum serviço cadastrado.<br>Abra a ⚙️ em <b>Copiar Dados</b> e use <b>Adicionar Serviço</b> para escolher um serviço do Windows.');
+    if (!cCont.innerHTML.trim()) cCont.innerHTML = emptyHint('Nenhum cliente cadastrado.<br>Abra <b>Configurações</b> e use <b>Adicionar Exes</b> ou <b>Usar configuração padrão</b>.');
+    if (!sCont.innerHTML.trim()) sCont.innerHTML = emptyHint('Nenhum servidor cadastrado.<br>Abra <b>Configurações</b> e use <b>Adicionar Exe</b> ou <b>Usar configuração padrão</b>.');
+    if (!bCont.innerHTML.trim()) bCont.innerHTML = emptyHint('Nenhuma pasta dos .cds cadastrada.<br>Abra <b>Configurações</b> e use <b>Adicionar Pasta dos .cds</b> ou <b>Usar configuração padrão</b>.');
+    if (!actCont.innerHTML.trim()) actCont.innerHTML = emptyHint('Nenhum serviço cadastrado.<br>Abra <b>Configurações</b> e use <b>Adicionar Serviço</b> para escolher um serviço do Windows.');
 
     // Contagens nos títulos das listas e resumo do perfil ativo
     const nCli = cCont.querySelectorAll('.chk-client').length;
@@ -269,6 +311,8 @@ function renderLists() {
     setTxt('cntClientes', nCli);
     setTxt('cntServidores', nSrv);
     setTxt('perfilResumo', `${nCli} cliente(s) · ${nSrv} servidor(es) neste perfil`);
+    atualizarResumoCopia();
+    atualizarContagemServidores();
 
     // Aba 3 - Configurações
     const cfgC = document.getElementById('cfgClientes'); cfgC.innerHTML = '';
@@ -333,6 +377,51 @@ function renderLists() {
     else if (tutorialStep === 6 && clientList.length >= 1) updateTutorial(7);
     else if (tutorialStep === 7 && serverList.length >= 1) updateTutorial(8);
 }
+
+// Resumo da barra de ação: o que está marcado e para onde vai (atualiza a cada marcação)
+function atualizarResumoCopia() {
+    const resumo = document.getElementById('copySummary');
+    const destino = document.getElementById('copyDest');
+    if (!resumo) return;
+    const conta = (sel) => document.querySelectorAll(sel + ':checked').length;
+    const c = conta('.chk-client'), s = conta('.chk-server'), b = conta('.chk-bd');
+    const partes = [];
+    if (c) partes.push(`${c} ${c === 1 ? 'cliente' : 'clientes'}`);
+    if (s) partes.push(`${s} ${s === 1 ? 'servidor' : 'servidores'}`);
+    if (b) partes.push(`${b} ${b === 1 ? 'base' : 'bases'}`);
+    resumo.textContent = partes.length
+        ? partes.join(', ').replace(/, ([^,]*)$/, ' e $1') + (c + s + b === 1 ? ' selecionado' : ' selecionados')
+        : 'Nada selecionado';
+    if (destino) {
+        const v = (id) => ((document.getElementById(id) || {}).value || '').trim();
+        const dests = [v('txtDestinoClientes'), v('txtDestinoServidores'), v('txtDestinoAtualizadores')].filter(Boolean);
+        destino.textContent = dests.length ? dests.join(' · ') : 'Defina as pastas de destino em Configurações';
+    }
+}
+
+// "Todos" / "Nenhum" no título de cada lista da tela de cópia
+window.marcarLista = (classe, marcar) => {
+    document.querySelectorAll('.' + classe).forEach(cb => { if (!cb.disabled) cb.checked = marcar; });
+    atualizarResumoCopia();
+};
+
+function atualizarContagemServidores() {
+    const el = document.getElementById('srvSelCount');
+    if (!el) return;
+    const n = document.querySelectorAll('.chk-batch-server:checked').length;
+    el.textContent = n === 1 ? '1 selecionado' : `${n} selecionados`;
+}
+
+document.addEventListener('change', (e) => {
+    const t = e.target;
+    if (!t || !t.matches) return;
+    if (t.matches('.chk-client, .chk-server, .chk-bd')) atualizarResumoCopia();
+    if (t.matches('.chk-batch-server')) atualizarContagemServidores();
+});
+['txtDestinoClientes', 'txtDestinoServidores', 'txtDestinoAtualizadores'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', atualizarResumoCopia);
+});
 
 window.editSubfolder = (type, index, onFinish) => {
     const list = type === 'client' ? clientList : serverList;
@@ -456,6 +545,8 @@ async function init() {
         const ver = await window.api.getAppVersion();
         const verEl = document.getElementById('app-version-text');
         if (verEl) verEl.textContent = ver;
+        const verMenu = document.getElementById('side-version');
+        if (verMenu) verMenu.textContent = 'v' + ver;
         appendLog(`Versão detectada no renderer: ${ver}`, '#89b4fa', 'copiar');
     }
     
@@ -539,6 +630,12 @@ async function init() {
     
     appendLog('Verificando privilégios de Administrador...', '#89b4fa', 'copiar');
     const isAdmin = await window.api.checkAdmin();
+    // Indicador no menu lateral: avisa de cara quando faltam privilégios para parar/iniciar serviços
+    const setPill = (id, valor) => { const el = document.getElementById(id); if (el) el.textContent = valor; };
+    setPill('adminTitle', isAdmin ? 'Administrador' : 'Sem administrador');
+    setPill('adminDesc', isAdmin ? 'Pode parar e iniciar serviços' : 'Serviços podem falhar');
+    const adminDot = document.getElementById('adminDot');
+    if (adminDot) adminDot.classList.toggle('warn', !isAdmin);
     if (!isAdmin) {
         appendLog('AVISO: O ExeBoard não está como Administrador. Algumas funções de servidores podem falhar.', 'var(--warning)', 'copiar');
         appendLog('Para corrigir, clique com o botão direito no programa e selecione "Executar como Administrador".', 'var(--warning)', 'servidores');
@@ -621,7 +718,26 @@ window.selectAllByStatus = (id, isChecked) => {
         if (isRun && stat === 'running') chk.checked = isChecked;
         if (!isRun && stat !== 'running') chk.checked = isChecked;
     });
+    atualizarContagemServidores();
 };
+
+// Uma ação (iniciar, parar ou reiniciar) sobre um serviço; usada pelos botões em lote e pelos botões da linha
+async function acaoServidor(srv, action, linha) {
+    if (action === 'restart') {
+        if (linha) {
+            linha.dataset.status = 'transition';
+            const ind = linha.querySelector('.indicator');
+            if (ind) ind.className = 'indicator transition';
+        }
+        appendLog(`Reiniciando ${srv.Nome}...`, LOG_COLORS.retry, 'servidores');
+        await window.api.manageServer({ srv, action: 'stop' });
+        await window.api.manageServer({ srv, action: 'start' });
+    } else {
+        const color = action === 'start' ? LOG_COLORS.info : LOG_COLORS.error;
+        appendLog(`${action === 'start' ? 'Iniciando' : 'Parando'} ${srv.Nome}...`, color, 'servidores');
+        await window.api.manageServer({ srv, action });
+    }
+}
 
 window.batchServerAction = async (action, blockBtn) => {
     const chks = document.querySelectorAll('.chk-batch-server:checked');
@@ -634,24 +750,22 @@ window.batchServerAction = async (action, blockBtn) => {
     // Em paralelo — cada servidor/serviço é independente dos demais, então não há motivo
     // pra esperar um terminar antes de começar o próximo (o que antes multiplicava o tempo
     // total pelo número de itens selecionados).
-    await Promise.all(Array.from(chks).map(async (c) => {
-        const srv = JSON.parse(c.value);
-        if (action === 'restart') {
-            const cbId = c.closest('.server-item');
-            if (cbId) {
-                cbId.dataset.status = 'transition';
-                cbId.querySelector('.indicator').className = 'indicator transition';
-            }
-            appendLog(`Reiniciando ${srv.Nome}...`, LOG_COLORS.retry, 'servidores');
-            await window.api.manageServer({ srv, action: 'stop' });
-            await window.api.manageServer({ srv, action: 'start' });
-        } else {
-            const color = action === 'start' ? LOG_COLORS.info : LOG_COLORS.error;
-            appendLog(`${action === 'start' ? 'Iniciando' : 'Parando'} ${srv.Nome}...`, color, 'servidores');
-            await window.api.manageServer({ srv, action });
-        }
-    }));
+    await Promise.all(Array.from(chks).map(c => acaoServidor(JSON.parse(c.value), action, c.closest('.server-item'))));
     if (blockBtn) blockBtn.disabled = false;
+};
+
+// Botões de iniciar/parar/reiniciar na própria linha do serviço
+window.serverRowAction = async (action, btn) => {
+    const linha = btn.closest('.server-item');
+    const chk = linha && linha.querySelector('.chk-batch-server');
+    if (!chk) return;
+    btn.disabled = true;
+    try {
+        await acaoServidor(JSON.parse(chk.value), action, linha);
+    } finally {
+        btn.disabled = false;
+        pollServersOnce(); // atualiza a situação logo após a ação
+    }
 };
 
 // ==== Perfil (lote 733 / 734) ====
@@ -715,7 +829,8 @@ function applySavedSelection(ultimaCopia, { trocarPerfilSalvo = false } = {}) {
     }
 
     const btnRepeat = document.getElementById('btnRepeatLastCopy');
-    if (btnRepeat) btnRepeat.style.display = 'flex';
+    if (btnRepeat) btnRepeat.style.display = 'inline-flex';
+    atualizarResumoCopia();
 }
 
 document.getElementById('btnRepeatLastCopy')?.addEventListener('click', () => {
@@ -814,7 +929,7 @@ document.getElementById('btnCopiarDados').addEventListener('click', async () => 
     fullConfig.ULTIMA_COPIA = currentSelection;
     await window.api.saveConfigSection('ULTIMA_COPIA', currentSelection).catch(() => {});
     const btnRepeat = document.getElementById('btnRepeatLastCopy');
-    if (btnRepeat) btnRepeat.style.display = 'flex';
+    if (btnRepeat) btnRepeat.style.display = 'inline-flex';
 
     // Inicializa a barra de progresso visual
     const pContainer = document.getElementById('copyProgressContainer');
@@ -1729,6 +1844,8 @@ window.bulkCheck = (check) => {
     if(!activeContextMenuList) return;
     document.querySelectorAll('.' + activeContextMenuList).forEach(cb => cb.checked = check);
     document.getElementById('listContextMenu').style.display = 'none';
+    atualizarResumoCopia();
+    atualizarContagemServidores();
 };
 
 document.addEventListener('click', () => {
@@ -1736,14 +1853,18 @@ document.addEventListener('click', () => {
 });
 
 // ==== Tema ====
+// Ícone e rótulo do botão de tema no menu lateral
+function refletirTema(isLight) {
+    const icone = document.getElementById('themeIcon');
+    const rotulo = document.getElementById('themeLabel');
+    if (icone) icone.className = 'i ' + (isLight ? 'i-sun' : 'i-moon');
+    if (rotulo) rotulo.textContent = isLight ? 'Tema claro' : 'Tema escuro';
+}
+
 function applyTheme(theme) {
-    if (theme === 'light') {
-        document.body.classList.add('light-theme');
-        document.getElementById('btnToggleTheme').textContent = '☀️';
-    } else {
-        document.body.classList.remove('light-theme');
-        document.getElementById('btnToggleTheme').textContent = '🌙';
-    }
+    const isLight = theme === 'light';
+    document.body.classList.toggle('light-theme', isLight);
+    refletirTema(isLight);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1754,6 +1875,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Engrenagem abre modal de Configurações
     document.getElementById('btnOpenSettings').addEventListener('click', () => {
+        const bb = document.getElementById('modalBitbucket');
+        if (bb) bb.style.display = 'none';
         document.getElementById('modalSettings').style.display = 'flex';
         if (tutorialStep === 1) updateTutorial(2);
     });
@@ -1767,7 +1890,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Theme Toggle (Dark / Light)
     document.getElementById('btnToggleTheme').addEventListener('click', () => {
         const isLight = document.body.classList.toggle('light-theme');
-        document.getElementById('btnToggleTheme').textContent = isLight ? '☀️' : '🌙';
+        refletirTema(isLight);
         if(!fullConfig.GERAL) fullConfig.GERAL = {};
         fullConfig.GERAL.TEMA = isLight ? 'light' : 'dark';
         window.api.saveConfig(fullConfig);
@@ -1960,9 +2083,9 @@ function updateTutorialLogic(step) {
         case 1:
             targetId = 'btnOpenSettings';
             title.innerText = '👋 Bem-vindo ao ExeBoard!';
-            text.innerHTML = 'Esta é sua primeira vez aqui. Clique na ⚙️ <b>Configurações</b> acima para começar a configuração.';
-            arrowChar = '↑';
-            position = 'bottom-right';
+            text.innerHTML = 'Esta é sua primeira vez aqui. Clique em <b>Configurações</b>, no menu à esquerda, para começar a configuração.';
+            arrowChar = '←';
+            position = 'right';
             break;
         case 2:
             targetId = 'btnLupaOnboarding1';
@@ -2028,7 +2151,7 @@ function updateTutorialLogic(step) {
         case 10:
             targetId = 'btnCopiarDados';
             title.innerText = 'Agora é só copiar! 🚀';
-            text.innerHTML = 'Para copiar: escolha o <b>perfil</b> do lote (<b>733</b> ou <b>734</b>) acima do botão, a pasta da branch da sua tarefa em <b>Procurar</b>, marque nas listas o que quer atualizar e clique em <b>Copiar Dados</b>. O progresso aparece na barra e o <b>Log de Atividades</b> mostra cada arquivo. Se os executáveis forem antigos (mais de 10 dias) ou de outro lote, o ExeBoard avisa logo abaixo do campo da Branch.';
+            text.innerHTML = 'Para copiar: escolha o <b>lote</b> (<b>733</b> ou <b>734</b>) no topo da tela, a pasta da branch da sua tarefa em <b>Procurar</b>, marque nas listas o que quer atualizar e clique em <b>Copiar Dados</b>. O progresso aparece nesta barra e o <b>Log de atividades</b> (barra abaixo, clique para abrir) mostra cada arquivo. Se os executáveis forem antigos (mais de 10 dias) ou de outro lote, o ExeBoard avisa logo abaixo do campo da Branch.';
             arrowChar = '↓';
             position = 'top-right';
             break;
@@ -2051,7 +2174,19 @@ function updateTutorialLogic(step) {
         const rect = target.getBoundingClientRect();
         
         spotlight.style.flexDirection = 'column';
-        if (position.startsWith('bottom')) {
+        arrow.classList.toggle('arrow-left', position === 'right');
+        if (position === 'right') {
+            // alvo no menu lateral: o card abre ao lado dele, com a seta apontando para a esquerda
+            spotlight.style.flexDirection = 'row';
+            spotlight.style.alignItems = 'flex-start';
+            spotlight.style.left = (rect.right + 15) + 'px';
+            spotlight.style.right = 'auto';
+            spotlight.style.bottom = 'auto';
+            arrow.innerText = '←';
+            // sobe o card o quanto precisar para não ultrapassar a borda de baixo da janela
+            const alturaCard = spotlight.offsetHeight || 0;
+            spotlight.style.top = Math.max(10, Math.min(rect.top - 24, window.innerHeight - alturaCard - 12)) + 'px';
+        } else if (position.startsWith('bottom')) {
             spotlight.style.top = (rect.bottom + 15) + 'px';
             spotlight.style.bottom = 'auto';
             arrow.innerText = '↑';
@@ -2289,6 +2424,7 @@ document.getElementById('btnExtractBitbucket')?.addEventListener('click', async 
 
 // Botão para abrir o Modal do Bitbucket
 document.getElementById('btnOpenBitbucket')?.addEventListener('click', () => {
+    fecharTelasSobrepostas();
     document.getElementById('modalBitbucket').style.display = 'flex';
 });
 

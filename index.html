@@ -12,206 +12,283 @@
 
 <body>
     <div class="app-container">
-        <!-- TOP TABS -->
-        <header class="top-nav">
+
+        <!-- MENU LATERAL -->
+        <aside class="side">
+            <div class="brand">
+                <div class="logo"><span class="i l i-layers" aria-hidden="true"></span></div>
+                <div><b>ExeBoard</b><small id="side-version">v</small></div>
+            </div>
+
+            <div class="nav-label">Operação</div>
             <ul class="nav-links">
-                <li class="active" data-tab="copiar">Copiar Dados</li>
-                <li data-tab="servidores">Servidores</li>
-                <li data-tab="sobre">Sobre</li>
+                <li class="active" data-tab="copiar"><span class="i i-download" aria-hidden="true"></span>Copiar dados</li>
+                <li data-tab="servidores"><span class="i i-server" aria-hidden="true"></span>Servidores</li>
             </ul>
-        </header>
+
+            <div class="nav-label">Ferramentas</div>
+            <div class="nav-list">
+                <button class="nav-item" id="btnOpenBitbucket" type="button" title="Extrator Cloud (Bitbucket)"><span class="i i-cloud" aria-hidden="true"></span>Extrator Cloud</button>
+            </div>
+
+            <div class="side-grow"></div>
+
+            <div class="nav-list">
+                <button class="nav-item" id="btnOpenSettings" type="button" title="Configurações"><span class="i i-sliders" aria-hidden="true"></span>Configurações</button>
+                <ul class="nav-links">
+                    <li data-tab="sobre"><span class="i i-info" aria-hidden="true"></span>Sobre e ajuda</li>
+                </ul>
+                <button class="nav-item" id="btnToggleTheme" type="button" title="Alternar tema"><span class="i i-moon" id="themeIcon" aria-hidden="true"></span><span id="themeLabel">Tema escuro</span></button>
+            </div>
+
+            <div class="admin" id="adminPill">
+                <span class="dot warn" id="adminDot"></span>
+                <div><b id="adminTitle">Verificando…</b><span id="adminDesc"></span></div>
+            </div>
+        </aside>
 
         <main class="content">
             <!-- ABA COPIAR DADOS -->
             <section id="copiar" class="tab-content active">
+                <header class="head">
+                    <div>
+                        <h1>Copiar dados</h1>
+                        <p>Escolha a branch, marque o que vai usar e copie para as pastas do Viasoft.</p>
+                    </div>
+                    <div class="segmented segmented-lg" id="perfilSwitch" role="group" aria-label="Perfil (lote)">
+                        <button type="button" data-perfil="733" title="Lote 733 (versão 4.0.x)"><b>Lote 733</b><small>versão 4.0.x</small></button>
+                        <button type="button" data-perfil="734" title="Lote 734 (versão 5.0.x)"><b>Lote 734</b><small>versão 5.0.x</small></button>
+                    </div>
+                </header>
 
-                <div class="toolbar-row">
-                    <span class="toolbar-spacer"></span>
-                    <button class="btn-toolbar" id="btnOpenBitbucket" title="Extrator Cloud (Bitbucket)">☁️</button>
-                    <button class="btn-toolbar" id="btnToggleTheme" title="Alternar Tema">🌙</button>
-                    <button class="btn-toolbar btn-toolbar-accent" id="btnOpenSettings"
-                        title="Configurações">⚙️</button>
+                <div class="body">
+                    <div class="glass-group branch-card">
+                        <div class="card-head">
+                            <span class="label-caps">Branch (develop / main / tarefa)</span>
+                            <span class="muted-note" id="perfilResumo"></span>
+                        </div>
+                        <div class="input-with-button">
+                            <div class="path-input-container">
+                                <input type="text" id="edtCaminhoBranch" autocomplete="off" placeholder="Cole ou escolha a pasta da branch/tarefa com os executáveis novos" />
+                                <div id="path-suggestions-custom" class="path-suggestions"></div>
+                            </div>
+                            <button class="btn-secondary" id="btnBuscarPath"><span class="i s i-folder" aria-hidden="true"></span>Procurar</button>
+                        </div>
+                        <div id="branchAgeWarning" class="age-warning" style="display:none;"></div>
+                        <div id="branchProfileWarning" class="age-warning" style="display:none;"></div>
+                        <span class="sr-only" id="perfilDescricao"></span>
+                    </div>
+
+                    <div class="panels-grid">
+                        <!-- Coluna 1 -->
+                        <div class="column-group glass-group">
+                            <div class="col-head">
+                                <span class="group-title-inline"
+                                    oncontextmenu="showListContextMenu(event, 'chk-bd')"><span class="i s i-db" aria-hidden="true"></span>Pastas dos .cds <span class="count-badge" id="cntCds">0</span><span class="help-icon"
+                                        data-tooltip="Dica: Marque apenas os Executáveis/Arquivos que você vai atualizar/utilizar.">i</span></span>
+                                <span class="col-actions"><button type="button" class="link-btn" onclick="marcarLista('chk-bd', true)">Todos</button><button type="button" class="link-btn" onclick="marcarLista('chk-bd', false)">Nenhum</button></span>
+                            </div>
+                            <div class="list-box" id="clbAtualizadores"
+                                oncontextmenu="showListContextMenu(event, 'chk-bd')"></div>
+                        </div>
+                        <!-- Coluna 2 -->
+                        <div class="column-group glass-group">
+                            <div class="col-head">
+                                <span class="group-title-inline"
+                                    oncontextmenu="showListContextMenu(event, 'chk-client')"><span class="i s i-download" aria-hidden="true"></span>Clientes <span class="count-badge" id="cntClientes">0</span><span class="help-icon"
+                                        data-tooltip="Dica: Marque apenas os Executáveis/Arquivos que você vai atualizar/utilizar.">i</span></span>
+                                <span class="col-actions"><button type="button" class="link-btn" onclick="marcarLista('chk-client', true)">Todos</button><button type="button" class="link-btn" onclick="marcarLista('chk-client', false)">Nenhum</button></span>
+                            </div>
+                            <div class="list-box" id="clbClientes" oncontextmenu="showListContextMenu(event, 'chk-client')">
+                            </div>
+                        </div>
+                        <!-- Coluna 3 -->
+                        <div class="column-group glass-group">
+                            <div class="col-head">
+                                <span class="group-title-inline"
+                                    oncontextmenu="showListContextMenu(event, 'chk-server')"><span class="i s i-server" aria-hidden="true"></span>Servidores <span class="count-badge" id="cntServidores">0</span><span class="help-icon"
+                                        data-tooltip="Dica: Marque apenas os Executáveis/Arquivos que você vai atualizar/utilizar.">i</span></span>
+                                <span class="col-actions"><button type="button" class="link-btn" onclick="marcarLista('chk-server', true)">Todos</button><button type="button" class="link-btn" onclick="marcarLista('chk-server', false)">Nenhum</button></span>
+                            </div>
+                            <div class="list-box" id="clbServidores"
+                                oncontextmenu="showListContextMenu(event, 'chk-server')"></div>
+                            <div class="col-note"><span class="i s i-alert" aria-hidden="true"></span><span>Serviços marcados são parados antes da cópia e religados ao final.</span></div>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="glass-group" style="z-index: 10;">
-                    <span class="group-title">Branch (develop / main / tarefa)</span>
-                    <div class="input-with-button">
-                        <div class="path-input-container">
-                            <input type="text" id="edtCaminhoBranch" autocomplete="off" placeholder="Cole ou escolha a pasta da branch/tarefa com os executáveis novos" />
-                            <div id="path-suggestions-custom" class="path-suggestions"></div>
+                <!-- Log recolhido: abre sob demanda e empurra o conteúdo (a barra de ação continua à vista) -->
+                <div class="log-drawer" id="logDrawerCopiar">
+                    <div class="log-toolbar">
+                        <span class="log-title"><span class="i s i-term" aria-hidden="true"></span>Log de atividades</span>
+                        <span class="grow-spacer"></span>
+                        <div class="segmented segmented-sm" role="group" aria-label="Filtro do log">
+                            <button type="button" class="active" onclick="setLogFilter(this, 'all')">Todos</button>
+                            <button type="button" onclick="setLogFilter(this, 'ok')">Sucesso</button>
+                            <button type="button" onclick="setLogFilter(this, 'err')">Erros</button>
                         </div>
-                        <button class="btn-secondary" id="btnBuscarPath">Procurar</button>
+                        <button type="button" class="btn-icon-sm" title="Limpar log" onclick="limparLog('copiar')">
+                            <span class="i s i-trash" aria-hidden="true"></span>
+                        </button>
                     </div>
-                    <div id="branchAgeWarning" class="age-warning" style="display:none;"></div>
-                    <div id="branchProfileWarning" class="age-warning" style="display:none;"></div>
-                </div>
-
-
-                <div class="panels-grid">
-                    <!-- Column 1 -->
-                    <div class="column-group">
-                        <span class="group-title-inline"
-                            oncontextmenu="showListContextMenu(event, 'chk-bd')">Pastas dos .cds <span class="count-badge" id="cntCds">0</span><span class="help-icon"
-                                data-tooltip="Dica: Marque apenas os Executáveis/Arquivos que você vai atualizar/utilizar.">i</span></span>
-                        <div class="list-box" id="clbAtualizadores"
-                            oncontextmenu="showListContextMenu(event, 'chk-bd')"></div>
-                    </div>
-                    <!-- Column 2 -->
-                    <div class="column-group">
-                        <span class="group-title-inline"
-                            oncontextmenu="showListContextMenu(event, 'chk-client')">Clientes <span class="count-badge" id="cntClientes">0</span><span class="help-icon"
-                                data-tooltip="Dica: Marque apenas os Executáveis/Arquivos que você vai atualizar/utilizar.">i</span></span>
-                        <div class="list-box" id="clbClientes" oncontextmenu="showListContextMenu(event, 'chk-client')">
-                        </div>
-                    </div>
-                    <!-- Column 3 -->
-                    <div class="column-group">
-                        <span class="group-title-inline"
-                            oncontextmenu="showListContextMenu(event, 'chk-server')">Servidores <span class="count-badge" id="cntServidores">0</span><span class="help-icon"
-                                data-tooltip="Dica: Marque apenas os Executáveis/Arquivos que você vai atualizar/utilizar.">i</span></span>
-                        <div class="list-box" id="clbServidores"
-                            oncontextmenu="showListContextMenu(event, 'chk-server')"></div>
+                    <div class="log-layout">
+                        <div class="log-box" id="rtbLog"></div>
                     </div>
                 </div>
 
-                <div class="bottom-row">
-                    <div class="glass-group log-group">
-                        <span class="group-title">Log de Atividades</span>
-                        <div class="log-toolbar">
-                            <div class="segmented segmented-sm" role="group" aria-label="Filtro do log">
-                                <button type="button" class="active" onclick="setLogFilter(this, 'all')">Todos</button>
-                                <button type="button" onclick="setLogFilter(this, 'ok')">Sucesso</button>
-                                <button type="button" onclick="setLogFilter(this, 'err')">Erros</button>
-                            </div>
-                            <button type="button" class="btn-icon-sm" title="Limpar log"
-                                onclick="limparLog('copiar')">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path></svg>
-                            </button>
+                <!-- Barra de ação fixa: resumo do que vai ser copiado + botão principal -->
+                <div class="dock">
+                    <div class="dock-sum">
+                        <b id="copySummary">Nada selecionado</b>
+                        <span id="copyDest" class="mono"></span>
+                    </div>
+                    <!-- Progresso da cópia: aparece no lugar do resumo enquanto copia -->
+                    <div id="copyProgressContainer" class="dock-progress" style="display:none;">
+                        <div class="dock-progress-head">
+                            <span id="copyProgressLabel" class="copy-progress-label">Copiando...</span>
+                            <span id="copyProgressCount">0 / 0</span>
                         </div>
-                        <div class="log-layout">
-                            <div class="log-box" id="rtbLog"></div>
+                        <div class="progress-track">
+                            <div id="copyProgressBar" class="progress-bar"></div>
                         </div>
                     </div>
-
-                    <div class="glass-group copy-panel">
-                        <span class="group-title">Copiar</span>
-                        <div class="profile-block">
-                            <div class="profile-head">
-                                <span class="profile-label">Perfil do lote</span>
-                                <span class="profile-desc" id="perfilDescricao"></span>
-                                <span class="profile-summary" id="perfilResumo"></span>
-                            </div>
-                            <div class="segmented segmented-lg" id="perfilSwitch" role="group" aria-label="Perfil (lote)">
-                                <button type="button" data-perfil="733" title="Lote 733 (versão 4.0.x)">733</button>
-                                <button type="button" data-perfil="734" title="Lote 734 (versão 5.0.x)">734</button>
-                            </div>
-                        </div>
-
-                        <div class="copy-actions">
-                            <button id="btnRepeatLastCopy" class="btn-ghost" title="Restaura a seleção da última cópia realizada" style="display:none;">
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
-                                Repetir última cópia
-                            </button>
-                            <!-- Barra de Progresso da Cópia -->
-                            <div id="copyProgressContainer" style="display:none;">
-                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                                    <span id="copyProgressLabel" class="copy-progress-label">Copiando...</span>
-                                    <span id="copyProgressCount" style="font-size:0.78rem; font-weight:600; color:var(--accent);">0 / 0</span>
-                                </div>
-                                <div class="progress-track">
-                                    <div id="copyProgressBar" class="progress-bar"></div>
-                                </div>
-                            </div>
-                            <button id="btnCopiarDados" class="btn-primary btn-copy-main">Copiar Dados</button>
-                        </div>
-                    </div>
+                    <button id="btnRepeatLastCopy" class="btn-ghost" title="Restaura a seleção da última cópia realizada" style="display:none;">
+                        <span class="i s i-repeat" aria-hidden="true"></span>
+                        Repetir última cópia
+                    </button>
+                    <button id="btnCopiarDados" class="btn-primary btn-copy-main">Copiar Dados</button>
+                </div>
+                <div class="logbar" onclick="toggleLog('copiar')" role="button" tabindex="0" title="Abrir ou recolher o log">
+                    <span class="log-title"><span class="i s i-term" aria-hidden="true"></span>Log de atividades</span>
+                    <span class="log-peek" id="logPeekCopiar"></span>
+                    <span class="log-toggle"><span class="log-toggle-label">Abrir</span><span class="i s i-up" aria-hidden="true"></span></span>
                 </div>
             </section>
 
             <!-- ABA SERVIDORES -->
             <section id="servidores" class="tab-content">
-                <div style="display:flex; gap: 20px; align-items: center; margin-bottom: 10px;">
-                    <label class="custom-checkbox cb-large">
-                        <input type="checkbox" id="chkFilterRun" onclick="selectAllByStatus(this.id, this.checked)">
-                        <span class="checkmark"></span>
-                        <span class="label-text">Selecionar em execução</span>
-                    </label>
-                    <label class="custom-checkbox cb-large">
-                        <input type="checkbox" id="chkFilterStop" onclick="selectAllByStatus(this.id, this.checked)">
-                        <span class="checkmark"></span>
-                        <span class="label-text">Selecionar Parados</span>
-                    </label>
-                </div>
-
-                <div class="actions-row" style="margin-bottom: 20px;">
-                    <button class="btn-secondary" onclick="batchServerAction('start', this)">Iniciar</button>
-                    <button class="btn-secondary" onclick="batchServerAction('stop', this)">Parar</button>
-                    <button class="btn-secondary" style="width: 120px;"
-                        onclick="batchServerAction('restart', this)">Reiniciar</button>
-                </div>
-
-                <div class="glass-group" style="flex:3; display:flex; flex-direction:column;">
-                    <span class="group-title">Servidores</span>
-                    <div class="list-box" id="server-actions-list">
-                        <!-- JS Inject -->
+                <header class="head">
+                    <div>
+                        <h1>Servidores</h1>
+                        <p>Inicie, pare e reinicie os serviços Windows do Viasoft sem sair do ExeBoard.</p>
                     </div>
-                </div>
+                    <div class="chip-checks">
+                        <label class="custom-checkbox cb-large">
+                            <input type="checkbox" id="chkFilterRun" onclick="selectAllByStatus(this.id, this.checked)">
+                            <span class="checkmark"></span>
+                            <span class="label-text">Selecionar em execução</span>
+                        </label>
+                        <label class="custom-checkbox cb-large">
+                            <input type="checkbox" id="chkFilterStop" onclick="selectAllByStatus(this.id, this.checked)">
+                            <span class="checkmark"></span>
+                            <span class="label-text">Selecionar Parados</span>
+                        </label>
+                    </div>
+                </header>
 
-                <div class="glass-group log-group">
-                    <span class="group-title">Log de Atividades</span>
-                    <div class="log-layout">
-                        <div class="log-box" id="rtbLogServidores"></div>
-                        <div class="log-buttons">
+                <div class="body">
+                    <div class="glass-group actions-card">
+                        <span class="sel-chip" id="srvSelCount">0 selecionados</span>
+                        <span class="grow-spacer"></span>
+                        <div class="actions-row">
+                            <button class="btn-secondary" onclick="batchServerAction('start', this)"><span class="i s i-play" aria-hidden="true"></span>Iniciar</button>
+                            <button class="btn-secondary" onclick="batchServerAction('stop', this)"><span class="i s i-stop" aria-hidden="true"></span>Parar</button>
                             <button class="btn-secondary"
-                                onclick="limparLog('servidores')">Limpar Log</button>
-                            <button class="btn-secondary" onclick="filterLogs('err', 'servidores')">Erros</button>
-                            <button class="btn-secondary" onclick="filterLogs('ok', 'servidores')">Sucesso</button>
-                            <button class="btn-secondary" onclick="filterLogs('all', 'servidores')">Todos</button>
+                                onclick="batchServerAction('restart', this)"><span class="i s i-refresh" aria-hidden="true"></span>Reiniciar</button>
+                        </div>
+                    </div>
+
+                    <div class="glass-group servers-card">
+                        <div class="list-box" id="server-actions-list">
+                            <!-- JS Inject -->
                         </div>
                     </div>
                 </div>
+
+                <div class="log-drawer" id="logDrawerServidores">
+                    <div class="log-toolbar">
+                        <span class="log-title"><span class="i s i-term" aria-hidden="true"></span>Log de atividades</span>
+                        <span class="grow-spacer"></span>
+                        <div class="segmented segmented-sm" role="group" aria-label="Filtro do log">
+                            <button type="button" class="active" onclick="setLogFilter(this, 'all', 'servidores')">Todos</button>
+                            <button type="button" onclick="setLogFilter(this, 'ok', 'servidores')">Sucesso</button>
+                            <button type="button" onclick="setLogFilter(this, 'err', 'servidores')">Erros</button>
+                        </div>
+                        <button type="button" class="btn-icon-sm" title="Limpar log" onclick="limparLog('servidores')">
+                            <span class="i s i-trash" aria-hidden="true"></span>
+                        </button>
+                    </div>
+                    <div class="log-layout">
+                        <div class="log-box" id="rtbLogServidores"></div>
+                    </div>
+                </div>
+                <div class="logbar" onclick="toggleLog('servidores')" role="button" tabindex="0" title="Abrir ou recolher o log">
+                    <span class="log-title"><span class="i s i-term" aria-hidden="true"></span>Log de atividades</span>
+                    <span class="log-peek" id="logPeekServidores"></span>
+                    <span class="log-toggle"><span class="log-toggle-label">Abrir</span><span class="i s i-up" aria-hidden="true"></span></span>
+                </div>
             </section>
-
-
 
             <!-- ABA SOBRE -->
             <section id="sobre" class="tab-content">
-                <div class="glass-group">
-                    <span class="group-title">Versão do ExeBoard - <span id="app-version-text"></span></span>
-                    <br>
-                    <table class="styled-table" style="width: 60%;">
-                        <thead>
-                            <tr>
-                                <th>Nome</th>
-                                <th>Cargo/Função</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td>Fernando</td>
-                                <td>Arquiteto de Software</td>
-                            </tr>
-                            <tr>
-                                <td>Giancarlo</td>
-                                <td>Analista de Teste</td>
-                            </tr>
-                            <tr>
-                                <td>Nicolas</td>
-                                <td>Analista de Teste</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    <br><br>
-                    <a href="#" class="external-link"
-                        onclick="window.api.openExternal('https://github.com/nicochet01/ExeBoard-3.0')">Repositório
-                        GitHub</a>
-                </div>
+                <header class="head">
+                    <div>
+                        <h1>Sobre e ajuda</h1>
+                        <p>Versão instalada, equipe e o tutorial de primeiros passos.</p>
+                    </div>
+                </header>
 
-                <div class="glass-group" style="margin-top: 16px;">
-                    <span class="group-title">Ajuda</span>
-                    <p style="font-size: 0.85rem; opacity: 0.8; margin: 6px 0 12px;">Primeira vez no ExeBoard? O tutorial
-                        guiado mostra como configurar as pastas e os executáveis, passo a passo.</p>
-                    <button class="btn-secondary" onclick="replayTutorial()">Rever tutorial</button>
+                <div class="body">
+                    <div class="about-grid">
+                        <div class="glass-group about-hero">
+                            <div class="about-id">
+                                <div class="logo logo-lg"><span class="i l i-layers" aria-hidden="true"></span></div>
+                                <div>
+                                    <b class="about-name">ExeBoard</b>
+                                    <span class="mono about-ver">versão <span id="app-version-text"></span></span>
+                                </div>
+                            </div>
+                            <p class="about-desc">Copia executáveis e bases das branches do Drive para as pastas do Viasoft e controla os serviços Windows, para a equipe de testes montar o ambiente em minutos.</p>
+                            <a href="#" class="btn-secondary link-as-btn"
+                                onclick="window.api.openExternal('https://github.com/nicochet01/ExeBoard-3.0'); return false;"><span class="i s i-ext" aria-hidden="true"></span>Repositório GitHub</a>
+                        </div>
+
+                        <div class="about-side">
+                            <div class="glass-group">
+                                <span class="group-title">Equipe</span>
+                                <table class="styled-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Nome</th>
+                                            <th>Cargo/Função</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td>Fernando</td>
+                                            <td>Arquiteto de Software</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Giancarlo</td>
+                                            <td>Analista de Teste</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Nicolas</td>
+                                            <td>Analista de Teste</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div class="glass-group help-card">
+                                <div>
+                                    <span class="group-title">Ajuda</span>
+                                    <p class="help-text">Primeira vez no ExeBoard? O tutorial guiado mostra como configurar as pastas e os executáveis, passo a passo.</p>
+                                </div>
+                                <button class="btn-secondary" onclick="replayTutorial()">Rever tutorial</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </section>
         </main>
@@ -321,16 +398,18 @@
         </div>
     </div>
 
-    <!-- Modal de Configurações (Item 1: Engrenagem) -->
-    <div id="modalSettings" class="modal-overlay" style="display:none;">
+    <!-- Configurações: ocupa a área ao lado do menu, como uma tela -->
+    <div id="modalSettings" class="modal-overlay screen-overlay" style="display:none;">
         <div class="modal-content glass-group settings-modal-content">
-            <div class="modal-title" style="display:flex; justify-content:space-between; align-items:center;">
-                <span>⚙️ Configurações</span>
-                <button class="btn-icon-sm" id="btnCloseSettings" title="Fechar">✕</button>
-            </div>
-            <div class="modal-body" style="overflow-y:auto; max-height:65vh;">
-                <div class="glass-group" style="margin-bottom:20px;">
-                    <span class="group-title">Preferências Gerais</span>
+            <header class="head">
+                <div>
+                    <h1>Configurações</h1>
+                    <p>Defina as pastas de destino e quais executáveis aparecem na tela de cópia.</p>
+                </div>
+                <button class="btn-icon-sm btn-close" id="btnCloseSettings" title="Fechar"><span class="i i-x" aria-hidden="true"></span></button>
+            </header>
+            <div class="screen-body">
+                <div class="glass-group pref-card">
                     <label class="custom-checkbox">
                         <input type="checkbox" id="chkHabilitarTray">
                         <span class="checkmark"></span>
@@ -338,79 +417,70 @@
                     </label>
                 </div>
                 <div class="panels-grid settings-grid">
-                    <div class="column-group">
-                        <span class="group-title-inline">Gerenciar Pastas dos .cds</span>
-                        <div class="input-with-button-sm" style="margin-bottom: 8px;">
+                    <div class="column-group glass-group">
+                        <div class="col-head"><span class="group-title-inline"><span class="i s i-db" aria-hidden="true"></span>Pastas dos .cds</span></div>
+                        <div class="input-with-button-sm">
                             <input type="text" id="txtDestinoAtualizadores" placeholder="Ex: C:\Viasoft\Dados" />
                             <button class="btn-icon" id="btnLupaOnboarding1"
-                                onclick="selectFolderDest('txtDestinoAtualizadores')">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <circle cx="11" cy="11" r="8"></circle>
-                                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                                </svg>
+                                onclick="selectFolderDest('txtDestinoAtualizadores')" title="Escolher a pasta">
+                                <span class="i s i-search" aria-hidden="true"></span>
                             </button>
+                        </div>
+                        <div class="col-buttons">
+                            <button class="btn-secondary" id="btnAddAtualizador"
+                                onclick="addDatabaseRow()"><span class="i s i-plus" aria-hidden="true"></span>Adicionar Pasta dos .cds</button>
                         </div>
                         <div class="list-box" id="cfgAtualizadores"
                             oncontextmenu="showListContextMenu(event, 'cfg-del-bd')"></div>
-                        <button class="btn-secondary" id="btnAddAtualizador" style="margin-top:10px"
-                            onclick="addDatabaseRow()">Adicionar Pasta dos .cds</button>
                     </div>
 
-                    <div class="column-group">
-                        <span class="group-title-inline">Gerenciar Executáveis Clientes</span>
-                        <div class="input-with-button-sm" style="margin-bottom: 8px;">
+                    <div class="column-group glass-group">
+                        <div class="col-head"><span class="group-title-inline"><span class="i s i-download" aria-hidden="true"></span>Executáveis clientes</span></div>
+                        <div class="input-with-button-sm">
                             <input type="text" id="txtDestinoClientes" placeholder="Ex: C:\Viasoft\Client" />
                             <button class="btn-icon" id="btnLupaOnboarding2"
-                                onclick="selectFolderDest('txtDestinoClientes')">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <circle cx="11" cy="11" r="8"></circle>
-                                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                                </svg>
+                                onclick="selectFolderDest('txtDestinoClientes')" title="Escolher a pasta">
+                                <span class="i s i-search" aria-hidden="true"></span>
                             </button>
+                        </div>
+                        <div class="col-buttons">
+                            <button class="btn-secondary" id="btnAddCliente"
+                                onclick="addClientRow()"><span class="i s i-plus" aria-hidden="true"></span>Adicionar Exes</button>
                         </div>
                         <div class="list-box" id="cfgClientes"
                             oncontextmenu="showListContextMenu(event, 'cfg-del-cli')">
                         </div>
-                        <button class="btn-secondary" id="btnAddCliente" style="margin-top:10px"
-                            onclick="addClientRow()">Adicionar
-                            Exes</button>
                     </div>
 
-                    <div class="column-group">
-                        <span class="group-title-inline">Gerenciar Aplicações/Serviços Servidores</span>
-                        <div class="input-with-button-sm" style="margin-bottom: 8px;">
+                    <div class="column-group glass-group">
+                        <div class="col-head"><span class="group-title-inline"><span class="i s i-server" aria-hidden="true"></span>Servidores e serviços</span></div>
+                        <div class="input-with-button-sm">
                             <input type="text" id="txtDestinoServidores" placeholder="Ex: C:\Viasoft\Server" />
                             <button class="btn-icon" id="btnLupaOnboarding3"
-                                onclick="selectFolderDest('txtDestinoServidores')">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <circle cx="11" cy="11" r="8"></circle>
-                                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                                </svg>
+                                onclick="selectFolderDest('txtDestinoServidores')" title="Escolher a pasta">
+                                <span class="i s i-search" aria-hidden="true"></span>
                             </button>
+                        </div>
+                        <div class="col-buttons">
+                            <button class="btn-secondary flex-1" id="btnAddServidor"
+                                onclick="addServerAutoDetect()"><span class="i s i-plus" aria-hidden="true"></span>Adicionar Serviço</button>
+                            <button class="btn-secondary flex-1" id="btnAddExeServidor"
+                                onclick="addServerManual()"><span class="i s i-plus" aria-hidden="true"></span>Adicionar Exe</button>
                         </div>
                         <div class="list-box" id="cfgServidores"
                             oncontextmenu="showListContextMenu(event, 'cfg-del-srv')"></div>
-                        <div style="display:flex; gap:10px; margin-top:10px;">
-                            <button class="btn-secondary flex-1" id="btnAddServidor"
-                                onclick="addServerAutoDetect()">Adicionar
-                                Serviço</button>
-                            <button class="btn-secondary flex-1" id="btnAddExeServidor"
-                                onclick="addServerManual()">Adicionar Exe</button>
-                        </div>
                     </div>
                 </div>
-                <div style="display:flex; justify-content:flex-end; gap:15px; margin-top:20px;">
-                    <button class="btn-secondary" onclick="applyDefaultConfig()"
-                        title="Adiciona as pastas e os executáveis padrão que ainda não estão na sua lista. Nada do que você já configurou é removido.">Usar
-                        configuração padrão</button>
-                    <button class="btn-secondary" onclick="removeSelectedConfigs()">Remover Selecionados</button>
-                    <button class="btn-secondary" onclick="cancelChanges()">Cancelar Alterações</button>
-                    <button class="btn-primary" id="btnSaveConfig" onclick="saveConfig()">Salvar Alterações</button>
-                </div>
-                <span style="color:var(--warning)" id="lblUnsaved"></span>
+            </div>
+            <div class="dock">
+                <span class="unsaved" id="lblUnsaved"></span>
+                <span class="grow-spacer"></span>
+                <button class="btn-ghost" onclick="applyDefaultConfig()"
+                    title="Adiciona as pastas e os executáveis padrão que ainda não estão na sua lista. Nada do que você já configurou é removido.">Usar
+                    configuração padrão</button>
+                <button class="btn-secondary" onclick="removeSelectedConfigs()">Remover Selecionados</button>
+                <button class="btn-secondary" onclick="cancelChanges()">Cancelar Alterações</button>
+                <button class="btn-primary" id="btnSaveConfig" onclick="saveConfig()">Salvar Alterações</button>
             </div>
         </div>
     </div>
@@ -450,102 +520,115 @@
             </div>
         </div>
     </div>
-    <!-- Modal Extrator Bitbucket -->
-    <div id="modalBitbucket" class="modal-overlay" style="display:none; z-index: 10000;">
-        <div class="modal-content glass-group" style="width: 700px; padding: 25px; position: relative; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px;">
-            <div class="modal-title" style="margin-bottom: 0;">Extrator Cloud (Bitbucket)</div>
-            
-            <button class="btn-icon" style="position: absolute; top: 15px; right: 15px; z-index: 10;" onclick="document.getElementById('modalBitbucket').style.display='none'">
-                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-            </button>
-            
-            <!-- Credenciais -->
-            <div class="bb-credentials-bar">
-                <div style="flex: 1;">
-                    <span class="label-caps">Workspace</span>
-                    <div class="input-icon-wrapper">
-                        <input type="text" id="bbWorkspace" placeholder="Ex: viasoft" />
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
-                    </div>
-                </div>
-                <div style="flex: 1;">
-                    <span class="label-caps">Repositório</span>
-                    <div class="input-icon-wrapper">
-                        <input type="text" id="bbRepo" placeholder="Ex: agro" />
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-                    </div>
-                </div>
-                <div style="flex: 1;">
-                    <span class="label-caps">Usuário</span>
-                    <div class="input-icon-wrapper">
-                        <input type="text" id="bbUser" placeholder="Email" />
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-                    </div>
-                </div>
-                <div style="flex: 1;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                        <span class="label-caps" style="margin-bottom: 0;">API Token</span>
-                        <a href="#" onclick="window.api.openExternal('https://nimitz.atlassian.net/wiki/x/GoAMPgE'); return false;" class="external-link" style="font-size: 0.72rem; display: flex; align-items: center; gap: 4px; font-weight: 500;">
-                            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-                            Como criar um Token?
-                        </a>
-                    </div>
-                    <div class="input-icon-wrapper">
-                        <input type="password" id="bbPassword" placeholder="Token" />
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                    </div>
-                </div>
-            </div>
 
-            <!-- Extração -->
-            <div style="display: flex; gap: 20px;">
-                <div style="flex: 1;">
-                    <label class="label-caps">Branch Base (Origem)</label>
-                    <div class="path-input-container">
-                        <div class="input-icon-wrapper" style="width: 100%;">
-                            <input type="text" id="bbBase" placeholder="main" value="main" autocomplete="off" />
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><line x1="1.05" y1="12" x2="7" y2="12"></line><line x1="17.01" y1="12" x2="22.96" y2="12"></line></svg>
+    <!-- Extrator Cloud (Bitbucket): ocupa a área ao lado do menu, como uma tela -->
+    <div id="modalBitbucket" class="modal-overlay screen-overlay" style="display:none; z-index: 10000;">
+        <div class="modal-content glass-group bb-screen">
+            <header class="head">
+                <div>
+                    <h1>Extrator Cloud</h1>
+                    <p>Baixe do Bitbucket só os arquivos que mudaram entre a branch base e a branch da tarefa.</p>
+                </div>
+                <button class="btn-icon-sm btn-close" onclick="document.getElementById('modalBitbucket').style.display='none'" title="Fechar"><span class="i i-x" aria-hidden="true"></span></button>
+            </header>
+
+            <div class="screen-body">
+                <div class="bb-cols">
+                    <!-- Credenciais -->
+                    <div class="glass-group bb-card">
+                        <span class="label-caps">Conexão</span>
+                        <div class="bb-credentials-bar">
+                            <div>
+                                <span class="label-caps">Workspace</span>
+                                <div class="input-icon-wrapper">
+                                    <input type="text" id="bbWorkspace" placeholder="Ex: viasoft" />
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+                                </div>
+                            </div>
+                            <div>
+                                <span class="label-caps">Repositório</span>
+                                <div class="input-icon-wrapper">
+                                    <input type="text" id="bbRepo" placeholder="Ex: agro" />
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                                </div>
+                            </div>
+                            <div>
+                                <span class="label-caps">Usuário</span>
+                                <div class="input-icon-wrapper">
+                                    <input type="text" id="bbUser" placeholder="Email" />
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="bb-token-head">
+                                    <span class="label-caps" style="margin-bottom: 0;">API Token</span>
+                                    <a href="#" onclick="window.api.openExternal('https://nimitz.atlassian.net/wiki/x/GoAMPgE'); return false;" class="external-link bb-help">
+                                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                                        Como criar um Token?
+                                    </a>
+                                </div>
+                                <div class="input-icon-wrapper">
+                                    <input type="password" id="bbPassword" placeholder="Token" />
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                                </div>
+                            </div>
                         </div>
-                        <div id="suggest-bbBase" class="path-suggestions"></div>
                     </div>
-                    <span class="helper-text">A branch estável. Padrão: main.</span>
-                </div>
 
-                <div style="flex: 1;">
-                    <label class="label-caps">Branch da Tarefa</label>
-                    <div class="path-input-container">
-                        <div class="input-icon-wrapper" style="width: 100%;">
-                            <input type="text" id="bbBranch" placeholder="Ex: feature/tarefa" autocomplete="off" />
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>
+                    <!-- Extração -->
+                    <div class="glass-group bb-card">
+                        <span class="label-caps">Extração</span>
+                        <div class="bb-fields">
+                            <div>
+                                <label class="label-caps">Branch Base (Origem)</label>
+                                <div class="path-input-container">
+                                    <div class="input-icon-wrapper" style="width: 100%;">
+                                        <input type="text" id="bbBase" placeholder="main" value="main" autocomplete="off" />
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><line x1="1.05" y1="12" x2="7" y2="12"></line><line x1="17.01" y1="12" x2="22.96" y2="12"></line></svg>
+                                    </div>
+                                    <div id="suggest-bbBase" class="path-suggestions"></div>
+                                </div>
+                                <span class="helper-text">A branch estável. Padrão: main.</span>
+                            </div>
+
+                            <div>
+                                <label class="label-caps">Branch da Tarefa</label>
+                                <div class="path-input-container">
+                                    <div class="input-icon-wrapper" style="width: 100%;">
+                                        <input type="text" id="bbBranch" placeholder="Ex: feature/tarefa" autocomplete="off" />
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>
+                                    </div>
+                                    <div id="suggest-bbBranch" class="path-suggestions"></div>
+                                </div>
+                                <span class="helper-text">Sua branch com o código novo.</span>
+                            </div>
+
+                            <div>
+                                <label class="label-caps">Pasta de Destino Local</label>
+                                <div class="input-with-button">
+                                    <div class="input-icon-wrapper" style="flex: 1;">
+                                        <input type="text" id="bbTargetDir" placeholder="Selecione ou digite o caminho..." />
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                                    </div>
+                                    <button class="btn-secondary" onclick="selecionarDestinoBitbucket()">Procurar</button>
+                                </div>
+                                <span class="helper-text">Os arquivos serão organizados em '/{repositório}/branch' e '/{repositório}/{base}'.</span>
+                            </div>
                         </div>
-                        <div id="suggest-bbBranch" class="path-suggestions"></div>
                     </div>
-                    <span class="helper-text">Sua branch com o código novo.</span>
                 </div>
-            </div>
-            
-            <div>
-                <label class="label-caps">Pasta de Destino Local</label>
-                <div style="display: flex; gap: 10px;">
-                    <div class="input-icon-wrapper" style="flex: 1;">
-                        <input type="text" id="bbTargetDir" placeholder="Selecione ou digite o caminho..." />
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-                    </div>
-                    <button class="btn-secondary" style="border-radius: var(--radius); padding: 0 20px;" onclick="selecionarDestinoBitbucket()">Procurar</button>
-                </div>
-                <span class="helper-text">Os arquivos serão organizados em '/{repositório}/branch' e '/{repositório}/{base}'.</span>
+
+                <!-- Preview de Arquivos (Inicialmente Oculto) -->
+                <div id="bbPreviewContainer" class="bb-preview" style="display: none;"></div>
             </div>
 
-            <!-- Preview de Arquivos (Inicialmente Oculto) -->
-            <div id="bbPreviewContainer" style="display: none; max-height: 180px; overflow-y: auto; background: var(--input-bg); border: 1px solid var(--panel-border); border-radius: var(--radius); padding: 10px; font-size: 0.78rem; color: var(--text-secondary); line-height: 1.6;">
-            </div>
-
-            <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 10px;">
-                <button class="btn-secondary" id="btnVerifyBitbucket" style="padding: 10px 20px; border-radius: 8px; display: inline-flex; align-items: center; gap: 8px;">
+            <div class="dock">
+                <span class="grow-spacer"></span>
+                <button class="btn-secondary btn-lg" id="btnVerifyBitbucket">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
                     Verificar Arquivos
                 </button>
-                <button class="btn-primary btn-glow" id="btnExtractBitbucket" style="font-size: 1rem; padding: 12px 30px; border-radius: 8px; display: inline-flex; align-items: center; gap: 10px;">
+                <button class="btn-primary btn-lg" id="btnExtractBitbucket">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                     Iniciar Extração
                 </button>

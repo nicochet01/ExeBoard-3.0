@@ -177,23 +177,25 @@ Conteúdo atual:
 
 ---
 
-## 5. Tela principal (aba "Copiar Dados") [FRONT]
+## 5. Tela principal ("Copiar dados") [FRONT]
 
-Barra superior: abas **Copiar Dados | Servidores | Sobre**. Barra de ferramentas (canto direito): **☁️ Extrator Cloud**, **🌙/☀️ Tema**, **⚙️ Configurações**.
+**Menu lateral** (desde a interface nova): **Copiar dados | Servidores** (Operação), **Extrator Cloud** (Ferramentas) e, embaixo, **Configurações**, **Sobre e ajuda** e o botão de **tema** (escuro/claro). Na base do menu fica o indicador de **Administrador** (verde: "Pode parar e iniciar serviços"; amarelo: "Sem administrador — serviços podem falhar"). A versão do app aparece sob o nome. **Configurações** e **Extrator Cloud** abrem como telas sobre a área principal (o menu continua visível; clicar em outro item do menu fecha a tela aberta).
 
-1. **Branch** — campo de texto com **sugestões** (ver 5.2) + botão **Procurar**. Abaixo, dois avisos opcionais:
+0. **Lote 733 | 734** — seletor no topo da tela (troca o perfil; ver seção 4).
+1. **Branch** — campo de texto com **sugestões** (ver 5.2) + botão **Procurar**; no canto do cartão, o resumo "N cliente(s) · M servidor(es) neste perfil". Abaixo, dois avisos opcionais:
    idade dos executáveis (9.3) e perfil × versão (9.4).
 2. **Três listas** lado a lado: **Pastas dos .cds**, **Clientes**, **Servidores**, cada uma com contagem no título e ícone de ajuda.
-   Itens com caixa de seleção, **todos marcados por padrão**. Clique direito no título/lista → **Marcar Todos / Desmarcar Todos**.
-3. **Linha inferior**: à esquerda o **Log de Atividades** (filtro segmentado Todos/Sucesso/Erros + ícone lixeira "Limpar log"); à direita
-   o painel **Copiar** (perfil, botão "Repetir última cópia", barra de progresso, botão grande **Copiar Dados**).
-- Aba **Servidores** (8.4) e aba **Sobre** (versão do app, tabela da equipe, link do repositório, seção Ajuda com **Rever tutorial**).
+   Itens com caixa de seleção, **todos marcados por padrão**. Cada lista tem os links **Todos / Nenhum** no título; clique direito no título/lista → **Marcar Todos / Desmarcar Todos**.
+   Item desmarcado aparece em cinza. A lista de servidores traz o aviso "Serviços marcados são parados antes da cópia e religados ao final.".
+3. **Barra de ação fixa** (sempre visível, embaixo): resumo do que está marcado ("3 clientes, 1 servidor e 2 bases selecionados") com as **pastas de destino**, botão **Repetir última cópia** e o botão grande **Copiar Dados**. Durante a cópia, o **progresso** (nome do arquivo, "n / total" e barra) ocupa o lugar do resumo e o botão vira **Cancelar Cópia**.
+4. **Log de atividades recolhido**: uma barra fina mostra só a **última linha** (com a cor da mensagem); clicar (ou Enter/espaço) abre a **gaveta do log** (filtro Todos/Sucesso/Erros + lixeira "Limpar log"), que empurra o conteúdo para cima sem cobrir a barra de ação. Cada aba (Copiar e Servidores) tem seu próprio log.
+- Aba **Servidores** (8.4) e tela **Sobre e ajuda** (versão do app, tabela da equipe, link do repositório, seção Ajuda com **Rever tutorial**).
 
 ### 5.1 Quais itens aparecem
 - **Clientes**: todos os do perfil ativo.
 - **Servidores (aba Copiar)**: só os que **não são serviço puro** *ou* têm `AppServidora` (serviços puros, como o Firebird, ficam só na aba Servidores).
 - **Servidores (aba Servidores)**: todos os `Tipo = Servico` (inclui serviços puros), do perfil ativo, com indicador de status.
-- Listas vazias mostram **dicas** de orientação (ex.: "Nenhum cliente cadastrado. Abra a ⚙️ e use **Adicionar Exes** ou **Usar configuração padrão**."),
+- Listas vazias mostram **dicas** de orientação (ex.: "Nenhum cliente cadastrado. Abra **Configurações** e use **Adicionar Exes** ou **Usar configuração padrão**."),
   e as de serviços orientam a usar **Adicionar Serviço**.
 
 ### 5.2 Sugestões de caminho (campo da Branch) [AMBOS]
@@ -328,14 +330,15 @@ Entrada: `reqs[{destDir, type: client|server|bd, itemData}]` e `branchRoot`. Sa�
 - `kill-process(nome)` (clientes): `taskkill /F /IM nome.exe` → `{killed, msg}`.
 
 ### 8.4 Aba Servidores [FRONT]
-- Lista os serviços (do perfil ativo) com **indicador de cor**: `running`, `stopped`, `transition`, `not_found`.
+- Lista os serviços (do perfil ativo) com **indicador de situação** em forma de etiqueta: `running` ("Em execução"), `stopped` ("Parado"), `transition` ("Em transição…"), `not_found` ("Não encontrado").
+- Um contador mostra quantos estão **selecionados**. Cada linha tem botões **Iniciar / Parar / Reiniciar** só daquele serviço (mesma lógica dos botões em lote, e atualiza a situação logo em seguida).
 - Caixas **"Selecionar em execução"** e **"Selecionar Parados"** (este marca tudo que **não** está `running`, inclusive `not_found`/`transition`).
 - Botões **Iniciar / Parar / Reiniciar** sobre os selecionados (nenhum selecionado → modal de erro "Selecione algum servidor na lista.").
   Executa **em paralelo** entre os itens; **Reiniciar** = parar e depois iniciar, **em sequência por item** (marca o indicador como `transition` e loga "Reiniciando X...").
   Logs: "Iniciando X..." (azul) / "Parando X..." (vermelho). O botão clicado fica desabilitado durante a operação.
 - **Polling**: a cada **3 s**, **somente** com a aba Servidores visível **e** a janela visível; verifica **em sequência** (nunca em avalanche) e só os itens que têm indicador.
   Ao abrir a aba e ao a janela voltar a ficar visível, atualiza **na hora**. Não agenda a próxima rodada até terminar a atual.
-- Log próprio da aba, com botões Limpar / Erros / Sucesso / Todos.
+- Log próprio da aba (barra recolhida + gaveta, com filtro Todos / Sucesso / Erros e Limpar).
 
 ---
 
@@ -364,7 +367,9 @@ nome depois do caminho para ver as sugestões, ou use o botão Procurar."
 
 ---
 
-## 10. Janela de Configurações (⚙️) [FRONT]
+## 10. Tela de Configurações [FRONT]
+
+_Abre pelo item **Configurações** do menu lateral, ocupando a área ao lado do menu; a barra de ação fixa tem **Usar configuração padrão / Remover Selecionados / Cancelar Alterações / Salvar Alterações** e o aviso de alterações não salvas. Em cada coluna, os botões de adicionar ficam logo abaixo do campo de caminho (antes da lista)._
 
 - **Preferências Gerais**: "Rodar em segundo plano (minimizar para bandeja)" → `GERAL.HABILITAR_TRAY`.
 - Três colunas, cada uma com **campo de caminho + lupa** (diálogo de pasta) e lista com caixas de exclusão:
@@ -399,7 +404,7 @@ nome depois do caminho para ver as sugestões, ou use o botão Procurar."
 - Botões do cartão: passo 1 → **Usar configuração padrão** (aplica o padrão e **pula para o passo 9**); qualquer passo → **Pular tutorial**; passo 9 → **Continuar**; passo 10 → **Entendi**.
   Encerrar/pular grava `TUTORIAL_CONCLUIDO = '1'` (não reaparece).
 - Passos (os textos exatos estão em `renderer.js`, função `updateTutorialLogic`, e **não mudam na migração**):
-  1. Abrir ⚙️. 2. Pasta raiz dos Dados (`.cds`). 3. Pasta dos executáveis clientes (ex.: `C:\Viasoft\Client`). 4. Pasta dos executáveis servidores (ex.: `C:\Viasoft\Server`).
+  1. Abrir Configurações. 2. Pasta raiz dos Dados (`.cds`). 3. Pasta dos executáveis clientes (ex.: `C:\Viasoft\Client`). 4. Pasta dos executáveis servidores (ex.: `C:\Viasoft\Server`).
   5. Adicionar ≥ 1 Pasta dos .cds. 6. Adicionar ≥ 1 executável cliente. 7. Adicionar ≥ 1 executável servidor. 8. **Salvar**.
   9. Pasta da branch (campo vem preenchido com a pasta ERP — se existir na máquina — editável, com foco, e já abre as sugestões; digitar o início do nome da branch ou usar Procurar). 10. Explica o botão Copiar Dados (clicar nele só encerra o tutorial).
 - **Avanço automático** dos passos 2–4 ao escolher a pasta **ou** digitar > 3 caracteres; 5–7 quando a lista passa a ter ≥ 1 item. Passos já cumpridos são **pulados** (útil ao rever o tutorial).
