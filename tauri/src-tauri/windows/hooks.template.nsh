@@ -18,6 +18,9 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  ; Sobra do desinstalador do Electron (só ele usa este nome; o do Tauri é uninstall.exe). Se o Electron ainda o
+  ; segurava na hora da remoção (PREINSTALL), ele ficou na pasta: apaga agora, e também em máquinas já migradas.
+  Delete "$INSTDIR\Uninstall ExeBoard.exe"
   ClearErrors
   ${GetOptions} $CMDLINE "--updated" $R9
   ${IfNot} ${Errors}

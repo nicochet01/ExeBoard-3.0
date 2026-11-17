@@ -87,8 +87,17 @@ foreach ($c in $candidatos) {
 
         # 3) sobras: o proprio desinstalador e a pasta (somente se ela se chamar ExeBoard)
         if ((Split-Path -Leaf $dir) -ieq 'ExeBoard' -and (Test-Path -LiteralPath $dir)) {
-            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
-            Log ('  pasta removida: ' + $dir)
+            # o desinstalador que acabou de sair pode demorar a soltar o proprio arquivo: tenta de novo por ate ~15 s
+            for ($t = 1; $t -le 30 -and (Test-Path -LiteralPath $dir); $t++) {
+                Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+                if (Test-Path -LiteralPath $dir) { Start-Sleep -Milliseconds 500 }
+            }
+            if (Test-Path -LiteralPath $dir) {
+                $sobrou = (Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join ', '
+                Log ('  AVISO: nao foi possivel remover tudo em ' + $dir + ' (sobrou: ' + $sobrou + ')')
+            } else {
+                Log ('  pasta removida: ' + $dir)
+            }
         }
 
         # 4) a chave do registro, se o desinstalador deixou
