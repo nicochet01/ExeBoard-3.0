@@ -1,0 +1,28 @@
+{
+  "CAMINHOS": {
+    "PASTA_CLIENT": "C:\\Viasoft\\Client",
+    "PASTA_SERVER": "C:\\Viasoft\\Server",
+    "PASTA_DADOS": "C:\\Viasoft\\Dados",
+    "RAIZ_BRANCHES": "G:\\Drives compartilhados\\Viasoft Sistemas\\Agro\\Versoes\\ERP"
+  },
+  "CLIENTES": [
+    { "Nome": "Agro3C.exe", "SubDiretorios": "\\Agro", "Perfil": "733" },
+    { "Nome": "AgroX.exe", "SubDiretorios": "\\Agro", "Perfil": "734" },
+    { "Nome": "Exped.exe", "SubDiretorios": "\\Agro", "Perfil": "733" },
+    { "Nome": "ExpedX.exe", "SubDiretorios": "\\Agro", "Perfil": "734" },
+    { "Nome": "ExpImpAgro3C.exe", "SubDiretorios": "\\Agro", "Perfil": "733" },
+    { "Nome": "ExpImpAgroX.exe", "SubDiretorios": "\\Agro", "Perfil": "734" },
+    { "Nome": "FinAgro3C.exe", "SubDiretorios": "\\Agro", "Perfil": "733" },
+    { "Nome": "FinAgroX.exe", "SubDiretorios": "\\Agro", "Perfil": "734" }
+  ],
+  "SERVIDORES": [
+    { "Nome": "FirebirdServerDefaultInstance", "Tipo": "Servico", "IsPureService": true, "AppServidora": false, "SubDiretorios": "", "Perfil": "*" },
+    { "Nome": "ViasoftServerAgro", "Tipo": "Aplicacao", "IsPureService": false, "AppServidora": true, "SubDiretorios": "\\Agro", "Perfil": "733" },
+    { "Nome": "ViasoftServerAgroApi", "Tipo": "Servico", "IsPureService": false, "AppServidora": true, "SubDiretorios": "\\Agro", "Perfil": "*" },
+    { "Nome": "ViasoftServerAgroJobs", "Tipo": "Servico", "IsPureService": false, "AppServidora": true, "SubDiretorios": "\\Agro", "Perfil": "*" },
+    { "Nome": "ViasoftServerAgroX", "Tipo": "Servico", "IsPureService": false, "AppServidora": true, "SubDiretorios": "\\Agro", "Perfil": "734" },
+    { "Nome": "ViasoftServerDFE", "Tipo": "Aplicacao", "IsPureService": false, "AppServidora": true, "SubDiretorios": "\\DFe", "Perfil": "733" },
+    { "Nome": "ViasoftServerDfeX", "Tipo": "Servico", "IsPureService": false, "AppServidora": true, "SubDiretorios": "\\DFe", "Perfil": "734" }
+  ],
+  "PASTAS_CDS": ["Firebird", "Oracle"]
+}

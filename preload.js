@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('api', {
     executeExternal: (path) => ipcRenderer.invoke('execute-external', path),
     openExternal: (url) => ipcRenderer.invoke('open-external-url', url),
     extractBitbucket: (config) => ipcRenderer.invoke('extract-bitbucket', config),
+    verifyBitbucket: (config) => ipcRenderer.invoke('verify-bitbucket', config),
     saveConfigSection: (section, data) => ipcRenderer.invoke('save-config-section', section, data),
     listBranches: (config) => ipcRenderer.invoke('list-branches', config),
 
@@ -31,6 +32,11 @@ contextBridge.exposeInMainWorld('api', {
     // Item 2 & 3: Kill processes e Validação de Branch
     killProcess: (name) => ipcRenderer.invoke('kill-process', name),
     validateBranch: (data) => ipcRenderer.invoke('validate-branch', data),
+    checkExeAge: (data) => ipcRenderer.invoke('check-exe-age', data),
+    getBranchVersion: (data) => ipcRenderer.invoke('get-branch-version', data),
+
+    // Primeira instalação
+    getDefaultConfig: () => ipcRenderer.invoke('get-default-config'),
 
     // Logs
     onLogMessage: (callback) => ipcRenderer.on('log-message', (_event, data) => callback(data)),

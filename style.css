@@ -1255,4 +1255,354 @@ body.light-theme .service-display {
     border-radius: 999px;
     transition: width 0.25s ease-out;
     box-shadow: 0 0 8px var(--accent-glow);
-}
+}
+/* ===== Aviso de executáveis antigos (pasta da Branch) ===== */
+.age-warning {
+    position: relative;
+    margin-top: 10px;
+    padding: 10px 36px 10px 14px;
+    border: 1px solid var(--warning, #fbbf24);
+    border-radius: var(--radius);
+    background: rgba(251, 191, 36, 0.08);
+    color: var(--text-primary);
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+
+.age-warning-title {
+    font-weight: 600;
+    color: var(--warning, #fbbf24);
+}
+
+.age-warning-list {
+    margin-top: 4px;
+    font-family: Consolas, monospace;
+    font-size: 0.78rem;
+    opacity: 0.9;
+}
+
+.age-warning-hint {
+    margin-top: 4px;
+    font-size: 0.76rem;
+    opacity: 0.7;
+}
+
+.age-warning-close {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.age-warning-close:hover {
+    color: var(--text-primary);
+}
+
+/* ===== Listas vazias (orientação pra quem acabou de instalar) ===== */
+.empty-hint {
+    padding: 14px 12px;
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    text-align: center;
+    opacity: 0.85;
+}
+
+/* ===== Tutorial: botões do card ===== */
+.onboarding-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.onboarding-actions:empty {
+    display: none;
+}
+
+.onboarding-actions button {
+    padding: 6px 12px;
+    font-size: 0.78rem;
+}
+
+/* Tutorial (passo 9): eleva o campo da Branch e a lista de sugestões acima do escurecimento */
+.onboarding-active .spotlight-lift {
+    position: relative !important;
+    z-index: 50005 !important;
+    pointer-events: auto !important;
+}
+
+/* ===== Linha inferior da aba Copiar Dados: log + painel de cópia ===== */
+.bottom-row {
+    display: flex;
+    gap: 14px;
+    flex: 1;
+    min-height: 250px;
+    max-height: 340px;
+}
+
+.bottom-row > .log-group {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    max-height: none;
+}
+
+.log-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+/* Contagem ao lado do título das listas */
+.count-badge {
+    display: inline-block;
+    min-width: 20px;
+    padding: 1px 7px;
+    margin: 0 4px 0 6px;
+    border-radius: 999px;
+    background: rgba(167, 139, 250, 0.15);
+    color: var(--accent);
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-align: center;
+    vertical-align: 1px;
+}
+
+/* ===== Painel "Copiar" ===== */
+.copy-panel {
+    width: 330px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 16px;
+}
+
+.profile-block {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.profile-head {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.profile-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.profile-desc {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.profile-summary {
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+}
+
+.copy-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.copy-actions > button {
+    width: 100%;
+}
+
+.copy-progress-label {
+    font-size: 0.78rem;
+    opacity: 0.7;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 220px;
+}
+
+/* Botão principal: ícone via máscara (continua aparecendo mesmo quando o JS troca o texto do botão) */
+.btn-copy-main {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 16px 18px;
+    font-size: 1.05rem;
+    font-weight: 700;
+    box-shadow: 0 6px 22px var(--accent-glow);
+}
+
+.btn-copy-main::before {
+    content: '';
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'/%3E%3Cpolyline points='7 10 12 15 17 10'/%3E%3Cline x1='12' y1='15' x2='12' y2='3'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'/%3E%3Cpolyline points='7 10 12 15 17 10'/%3E%3Cline x1='12' y1='15' x2='12' y2='3'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.btn-copy-main:hover:not(:disabled) {
+    filter: brightness(1.08);
+    transform: translateY(-1px);
+}
+
+.btn-copy-main:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+/* Durante a cópia o mesmo botão vira "Cancelar" */
+.btn-copy-main.is-copying {
+    background: #f38ba8;
+    color: #1a1a1a;
+    box-shadow: 0 6px 22px rgba(243, 139, 168, 0.3);
+}
+
+.btn-copy-main.is-copying::before {
+    display: none;
+}
+
+/* Botão discreto (ex.: Repetir última cópia) */
+.btn-ghost {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 9px 12px;
+    background: transparent;
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius);
+    color: var(--text-secondary);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.btn-ghost:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(167, 139, 250, 0.08);
+}
+
+.btn-ghost:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ===== Seletor segmentado (perfil 733 / 734, filtro do log) ===== */
+.segmented {
+    display: inline-flex;
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.segmented button {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    padding: 7px 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.segmented button + button {
+    border-left: 1px solid var(--panel-border);
+}
+
+.segmented button:hover:not(:disabled):not(.active) {
+    background: rgba(167, 139, 250, 0.1);
+    color: var(--text-primary);
+}
+
+.segmented button.active {
+    background: var(--accent);
+    color: #0f0f1a;
+}
+
+.segmented button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Grande: o perfil é o controle principal da tela */
+.segmented-lg {
+    display: flex;
+    width: 100%;
+}
+
+.segmented-lg button {
+    flex: 1;
+    padding: 13px 0;
+    font-size: 1.15rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
+.segmented-lg button.active {
+    box-shadow: 0 0 18px var(--accent-glow);
+}
+
+/* Pequeno e discreto: filtro do log */
+.segmented-sm button {
+    padding: 4px 14px;
+    font-size: 0.74rem;
+}
+
+.segmented-sm button.active {
+    background: rgba(167, 139, 250, 0.2);
+    color: var(--accent);
+}
+
+/* ===== Etiqueta de perfil nas listas das Configurações ===== */
+.perfil-tag {
+    font-size: 0.72rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    border: 1px solid transparent;
+}
+
+.perfil-tag.p733 {
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.1);
+    border-color: rgba(251, 191, 36, 0.2);
+}
+
+.perfil-tag.p734 {
+    color: #34d399;
+    background: rgba(52, 211, 153, 0.1);
+    border-color: rgba(52, 211, 153, 0.2);
+}
+
+.perfil-tag.pamb {
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.04);
+    border-color: var(--panel-border);
+}
+
+/* Botão de ação dentro do aviso (ex.: "Trocar para 734") */
+.age-warning-action {
+    margin-top: 8px;
+    padding: 4px 12px;
+    font-size: 0.78rem;
+}

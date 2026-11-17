@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs-extra');
 const { createReadStream, createWriteStream } = require('fs');
 const ini = require('ini');
-const { exec, execSync } = require('child_process');
+const { execFile } = require('child_process'); // sempre execFile (sem shell): ver nomeSeguro()
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
 
@@ -38,6 +38,8 @@ const userDataPath = app.getPath('userData');
 const activeJsonPath = path.join(userDataPath, 'configuracoes.json');
 const legacyIniPath = path.join(userDataPath, 'Inicializar.ini');
 let copyCancelToken = false;
+let copyInProgress = false; // true enquanto execute-copy-files roda (usado pra confirmar o fechamento da janela)
+const EXE_AGE_WARN_DAYS = 10; // executáveis da Branch mais velhos que isso geram aviso na tela
 let configCache = { GERAL: { HABILITAR_TRAY: '0' } }; // Cache local para regras de negócio
 
 const COPY_BUFFER_SIZE = 1048576; // 1MB
@@ -46,6 +48,13 @@ const RETRY_DELAY_MS = 2000;
 
 // Garante o sufixo .exe de forma case-insensitive (evita duplicar em nomes como "Servico.EXE")
 const ensureExeSuffix = (name) => (name && !name.toLowerCase().endsWith('.exe')) ? name + '.exe' : name;
+
+// Nomes de serviço/processo vêm da configuração e viram argumento de sc/taskkill. Todos os comandos usam
+// execFile (sem shell), então não há injeção; esta guarda barra o que ainda poderia ter efeito indevido:
+// curingas do taskkill (/IM *), caminhos (\\servidor-remoto no sc), aspas e caracteres de controle.
+const nomeSeguro = (nome) => typeof nome === 'string'
+    && nome.length > 0 && nome.length <= 256
+    && !/[\\/"*?<>|\r\n\t\0]/.test(nome);
 
 app.isQuiting = false; // Inicializa a flag de fechamento real
 
@@ -82,6 +91,7 @@ function createWindow() {
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
+            spellcheck: false, // sem corretor ortográfico: menos memória e nenhum uso pra ele aqui
             preload: path.join(__dirname, 'preload.js') // Isso faz os dados voltarem a carregar!
         }
     });
@@ -111,8 +121,11 @@ function createWindow() {
         autoUpdater.disableWebInstaller = true; // Silencia o warning de Web Installer
 
         
-        // Verifica atualizações silenciosamente
-        autoUpdater.checkForUpdatesAndNotify();
+        // Verifica atualizações silenciosamente. Sem internet a promessa é rejeitada: o evento 'error' já
+        // registra o motivo, então aqui só evitamos o "Unhandled Rejection" no log.
+        autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+            log.warn('Não foi possível verificar atualizações (provavelmente sem conexão):', err && err.message);
+        });
 
 
 
@@ -127,17 +140,35 @@ function createWindow() {
         }
     });
 
-    // COMPORTAMENTO DE FECHAR: Se tiver tray, esconde. Se for quit real, fecha.
+    // COMPORTAMENTO DE FECHAR: o X sempre encerra o app. Ir pra bandeja é só ao MINIMIZAR
+    // (com a opção ativa) — tratado no evento 'minimize' acima. Se houver cópia em andamento,
+    // pede confirmação antes, pra não deixar arquivos pela metade.
+    let closeConfirmOpen = false;
     mainWindow.on('close', (event) => {
-        const trayEnabled = configCache.GERAL && configCache.GERAL.HABILITAR_TRAY === '1';
-        
-        if (!app.isQuiting && trayEnabled) {
+        if (!app.isQuiting && copyInProgress) {
             event.preventDefault();
-            mainWindow.hide();
-            log.info('Janela escondida (Tray ativo)');
-            return false;
+            if (closeConfirmOpen) return;
+            closeConfirmOpen = true;
+            dialog.showMessageBox(mainWindow, {
+                type: 'warning',
+                buttons: ['Continuar copiando', 'Sair mesmo assim'],
+                defaultId: 0,
+                cancelId: 0,
+                title: 'Cópia em andamento',
+                message: 'Há uma cópia de arquivos em andamento.',
+                detail: 'Se sair agora, a cópia será interrompida e os arquivos que estavam sendo copiados podem ficar incompletos.'
+            }).then(({ response }) => {
+                closeConfirmOpen = false;
+                if (response === 1 && mainWindow && !mainWindow.isDestroyed()) {
+                    copyCancelToken = true;
+                    app.isQuiting = true;
+                    mainWindow.close();
+                }
+            });
+            return;
         }
-        
+
+        app.isQuiting = true;
         log.info('Janela fechando definitivamente');
         if (tray) tray.destroy();
     });
@@ -198,27 +229,48 @@ function createTray() {
     }
 }
 
-// Limpeza automática de arquivos .tmp na inicialização
+// Limpeza dos temporários ÓRFÃOS deixados por uma cópia interrompida (queda de energia, processo morto).
+// A cópia grava em "<destino>.tmp" (ex.: AgroX.exe.tmp). Só apaga o que for claramente do ExeBoard:
+//  - nome no formato "<nome>.<extensão>.tmp" (um .tmp comum de outro programa não tem a extensão original);
+//  - parado há mais de 1 hora (uma cópia em andamento escreve o tempo todo, e o app só roda uma instância).
+// Varre só as 3 pastas de destino configuradas, com teto de entradas para não pesar numa árvore enorme.
+const TMP_ORFAO_IDADE_MS = 60 * 60 * 1000;
+const TMP_LIMITE_ENTRADAS = 50000;
+const ehTmpDoExeBoard = (nome) => /\.[A-Za-z0-9]{1,8}\.tmp$/i.test(nome);
+
 async function limparArquivosTemporarios() {
     try {
-        const pathsToClean = [];
-        if (configCache?.CAMINHOS) {
-            if (configCache.CAMINHOS.DESTINO_CLIENTES) pathsToClean.push(configCache.CAMINHOS.DESTINO_CLIENTES);
-            if (configCache.CAMINHOS.DESTINO_SERVIDORES) pathsToClean.push(configCache.CAMINHOS.DESTINO_SERVIDORES);
-            if (configCache.CAMINHOS.DESTINO_ATUALIZADORES) pathsToClean.push(configCache.CAMINHOS.DESTINO_ATUALIZADORES);
-        }
-        for (const rootDir of pathsToClean) {
-            if (!rootDir || rootDir.includes('Informe') || !(await fs.pathExists(rootDir))) continue;
-            // Recursivo: cópias reais gravam .tmp dentro de subpastas (ex: Clientes\ClienteX\Exes\arquivo.exe.tmp)
-            const entries = await fs.readdir(rootDir, { recursive: true }).catch(() => []);
-            for (const item of entries) {
-                if (item.endsWith('.tmp')) {
-                    const full = path.join(rootDir, item);
-                    await fs.unlink(full).catch(() => {});
-                    log.info(`Arquivo temporário órfão removido: ${full}`);
+        const c = configCache && configCache.CAMINHOS;
+        if (!c) return;
+        const raizes = [c.PASTA_CLIENT, c.PASTA_SERVER, c.PASTA_DADOS]
+            .filter((p) => p && typeof p === 'string' && !p.includes('Informe'));
+        const vistas = new Set();
+        let visitadas = 0;
+        let removidos = 0;
+        for (const raiz of raizes) {
+            const chave = path.normalize(raiz).toLowerCase();
+            if (vistas.has(chave) || !(await fs.pathExists(raiz))) continue;
+            vistas.add(chave);
+
+            const pilha = [raiz];
+            while (pilha.length > 0 && visitadas < TMP_LIMITE_ENTRADAS) {
+                const dir = pilha.pop();
+                const entradas = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+                for (const e of entradas) {
+                    visitadas++;
+                    const full = path.join(dir, e.name);
+                    if (e.isDirectory()) { pilha.push(full); continue; }
+                    if (!e.isFile() || !ehTmpDoExeBoard(e.name)) continue;
+                    const st = await fs.stat(full).catch(() => null);
+                    if (!st || Date.now() - st.mtimeMs < TMP_ORFAO_IDADE_MS) continue;
+                    await fs.unlink(full).then(() => {
+                        removidos++;
+                        log.info(`Arquivo temporário órfão removido: ${full}`);
+                    }).catch(() => {});
                 }
             }
         }
+        if (removidos > 0) sendLog(`Limpeza: ${removidos} arquivo(s) temporário(s) órfão(s) de cópias interrompidas removido(s).`, '#cba6f7', 'copiar');
     } catch (e) {
         log.warn('Aviso ao limpar arquivos temporários:', e.message);
     }
@@ -227,9 +279,9 @@ async function limparArquivosTemporarios() {
 app.whenReady().then(async () => {
     await loadConfig(); // Carrega configs antes de criar a UI
     console.log('Config JSON Carregada. Tray Ativo:', configCache.GERAL?.HABILITAR_TRAY);
-    await limparArquivosTemporarios();
     createWindow();
     createTray();
+    limparArquivosTemporarios(); // sem await: varrer as pastas de destino não deve atrasar a abertura da janela
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -302,10 +354,10 @@ app.on('will-quit', () => {
 
 app.on('window-all-closed', () => {
     log.info('EVENTO: Todas as janelas foram fechadas.');
-    // Mantém vivo na bandeja apenas se o tray estiver ativo
+    // Fechar pelo X (isQuiting) ou ter o tray desativado encerra o app de verdade
     const trayEnabled = configCache.GERAL && configCache.GERAL.HABILITAR_TRAY === '1';
-    if (!trayEnabled) {
-        log.info('Encerrando app pois Tray está desativado.');
+    if (!trayEnabled || app.isQuiting) {
+        log.info('Encerrando app.');
         app.quit();
     }
 });
@@ -316,6 +368,79 @@ function sendLog(msg, color = 'gray', target = 'copiar') {
     if (mainWindow) mainWindow.webContents.send('log-message', { msg, color, target });
 }
 
+// ==== Token do Bitbucket protegido pelo Windows (DPAPI, escopo do usuário atual) ====
+// Em disco o token vai cifrado em BITBUCKET.PASSWORD_ENC ("dpapi:" + base64); em memória e na tela continua
+// em BITBUCKET.PASSWORD. Só o mesmo usuário do Windows consegue decifrar (copiar o arquivo não vaza o token).
+// Formato aberto: qualquer linguagem lê com CryptUnprotectData (escopo CurrentUser, sem entropia extra).
+const PREFIXO_DPAPI = 'dpapi:';
+const cacheDpapi = { cifrado: new Map(), aberto: new Map() }; // evita abrir um PowerShell a cada leitura/gravação
+
+const dpapi = (modo, texto) => new Promise((resolve) => {
+    const script = modo === 'proteger'
+        ? "Add-Type -AssemblyName System.Security; $b=[Text.Encoding]::UTF8.GetBytes($env:EXEBOARD_SEG); [Convert]::ToBase64String([Security.Cryptography.ProtectedData]::Protect($b,$null,'CurrentUser'))"
+        : "Add-Type -AssemblyName System.Security; $b=[Convert]::FromBase64String($env:EXEBOARD_SEG); [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect($b,$null,'CurrentUser'))";
+    execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', script],
+        { env: { ...process.env, EXEBOARD_SEG: texto }, timeout: 20000, windowsHide: true },
+        (err, stdout) => resolve(err ? null : ((stdout || '').trim() || null)));
+});
+
+// Cópia da config pronta para o disco (token cifrado). Se não conseguir cifrar, mantém o token legível
+// em vez de perdê-lo — e avisa no log.
+async function tokenParaDisco(cfg) {
+    const bb = cfg && cfg.BITBUCKET;
+    if (!bb || typeof bb !== 'object') return cfg;
+    const copia = { ...cfg, BITBUCKET: { ...bb } };
+    const senha = typeof bb.PASSWORD === 'string' ? bb.PASSWORD : '';
+    delete copia.BITBUCKET.PASSWORD_ENC;
+    if (senha === '') { delete copia.BITBUCKET.PASSWORD; return copia; }
+    let cifrado = cacheDpapi.cifrado.get(senha);
+    if (!cifrado) {
+        cifrado = await dpapi('proteger', senha);
+        if (cifrado) { cacheDpapi.cifrado.set(senha, cifrado); cacheDpapi.aberto.set(cifrado, senha); }
+    }
+    if (!cifrado) {
+        log.warn('Não foi possível proteger o token do Bitbucket com o Windows; mantido sem cifra neste salvamento.');
+        return copia; // PASSWORD continua em texto
+    }
+    delete copia.BITBUCKET.PASSWORD;
+    copia.BITBUCKET.PASSWORD_ENC = PREFIXO_DPAPI + cifrado;
+    return copia;
+}
+
+// Decifra em memória (cfg é alterado). Retorna true se o arquivo tinha o token legível (legado) e precisa ser regravado cifrado.
+async function tokenDoDisco(cfg) {
+    const bb = cfg && cfg.BITBUCKET;
+    if (!bb || typeof bb !== 'object') return false;
+    if (typeof bb.PASSWORD_ENC === 'string' && bb.PASSWORD_ENC.startsWith(PREFIXO_DPAPI)) {
+        const cifrado = bb.PASSWORD_ENC.slice(PREFIXO_DPAPI.length);
+        let aberto = cacheDpapi.aberto.get(cifrado);
+        if (aberto === undefined) {
+            aberto = await dpapi('abrir', cifrado);
+            if (aberto) { cacheDpapi.aberto.set(cifrado, aberto); cacheDpapi.cifrado.set(aberto, cifrado); }
+        }
+        delete bb.PASSWORD_ENC;
+        if (aberto) bb.PASSWORD = aberto;
+        else {
+            bb.PASSWORD = '';
+            log.warn('Token do Bitbucket não pôde ser aberto (salvo por outro usuário do Windows?). Informe-o novamente.');
+        }
+        return false;
+    }
+    return typeof bb.PASSWORD === 'string' && bb.PASSWORD !== '';
+}
+
+// Gravações em fila: duas gravações quase simultâneas (ex.: sair de dois campos do Bitbucket) nunca se cruzam,
+// e a última sempre grava o estado mais recente de configCache.
+let filaGravacao = Promise.resolve();
+const gravarConfig = () => {
+    filaGravacao = filaGravacao.catch(() => { }).then(async () => {
+        await fs.ensureDir(userDataPath);
+        const paraDisco = await tokenParaDisco(configCache);
+        await fs.writeFile(activeJsonPath, JSON.stringify(paraDisco, null, 2), 'utf-8');
+    });
+    return filaGravacao;
+};
+
 async function loadConfig() {
     try {
         await fs.ensureDir(userDataPath);
@@ -324,6 +449,12 @@ async function loadConfig() {
         if (fs.existsSync(activeJsonPath)) {
             const content = await fs.readFile(activeJsonPath, 'utf-8');
             configCache = JSON.parse(content);
+            const tokenLegivel = await tokenDoDisco(configCache);
+            if (tokenLegivel) {
+                // arquivo antigo com o token em texto puro: regrava já cifrado
+                await gravarConfig().catch((e) => log.warn('Não foi possível cifrar o token existente:', e.message));
+                log.info('Token do Bitbucket migrado para armazenamento protegido.');
+            }
             log.info('Config carregada do configuracoes.json.');
             return;
         }
@@ -344,7 +475,7 @@ async function loadConfig() {
             configCache = ini.parse(iniContent);
 
             // Salva no novo formato JSON
-            await fs.writeFile(activeJsonPath, JSON.stringify(configCache, null, 2), 'utf-8');
+            await gravarConfig();
             log.info('Migração concluída: configuracoes.json criado com sucesso.');
 
             // Apaga o INI antigo do AppData (se existir lá)
@@ -358,7 +489,7 @@ async function loadConfig() {
         // === REGRA 3: Nenhum arquivo encontrado — cria JSON zerado ===
         log.warn('Nenhuma configuração encontrada. Criando configuracoes.json padrão.');
         configCache = { GERAL: { HABILITAR_TRAY: '0' } };
-        await fs.writeFile(activeJsonPath, JSON.stringify(configCache, null, 2), 'utf-8');
+        await gravarConfig();
 
     } catch (err) {
         log.error('Erro ao carregar configurações:', err);
@@ -376,9 +507,8 @@ ipcMain.handle('read-config', async () => {
 
 ipcMain.handle('save-config', async (event, dataToSave) => {
     try {
-        await fs.ensureDir(userDataPath);
-        await fs.writeFile(activeJsonPath, JSON.stringify(dataToSave, null, 2), 'utf-8');
-        configCache = dataToSave; // Atualiza o cache do backend
+        configCache = dataToSave; // Atualiza o cache do backend (o token segue legível só em memória)
+        await gravarConfig();
         return { success: true };
     } catch (err) {
         return { error: err.message };
@@ -388,44 +518,20 @@ ipcMain.handle('save-config', async (event, dataToSave) => {
 // Salva apenas uma seção da config sem sobrescrever o resto
 ipcMain.handle('save-config-section', async (event, sectionName, sectionData) => {
     try {
-        await fs.ensureDir(userDataPath);
         configCache[sectionName] = sectionData;
-        await fs.writeFile(activeJsonPath, JSON.stringify(configCache, null, 2), 'utf-8');
+        await gravarConfig();
         return { success: true };
     } catch (err) {
         return { error: err.message };
     }
 });
 
-// Lista branches do Bitbucket para autocomplete (Live Search)
-ipcMain.handle('list-branches', async (event, config) => {
-    const { workspace, repo, user, appPassword, searchTerm } = config;
-    if (!workspace || !repo || !user || !appPassword) return [];
-    
-    const authHeader = 'Basic ' + Buffer.from(`${user}:${appPassword}`).toString('base64');
-    const headers = { 'Authorization': authHeader };
-    
-    try {
-        let url = `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repo)}/refs/branches?sort=-target.date&pagelen=20`;
-        if (searchTerm) {
-            // Encode the BbQL query: name ~ "term"
-            const query = `name ~ "${searchTerm}"`;
-            url += `&q=${encodeURIComponent(query)}`;
-        }
-        
-        const res = await fetch(url, { headers });
-        if (!res.ok) return [];
-        const data = await res.json();
-        return (data.values || []).map(b => b.name);
-    } catch (err) {
-        return [];
-    }
-});
+// (a listagem de branches do Bitbucket fica na seção "BITBUCKET", mais abaixo)
 
 // Verifica se o processo tem privilégios administrativos (Técnica Silenciosa e Assíncrona)
 ipcMain.handle('check-admin', async () => {
     return new Promise((resolve) => {
-        exec('fltmc', (error) => {
+        execFile('fltmc', [], { windowsHide: true }, (error) => {
             resolve(!error);
         });
     });
@@ -437,8 +543,11 @@ ipcMain.handle('check-admin', async () => {
 // Verifica o status de um item (Polling)
 ipcMain.handle('check-status', async (event, srv) => {
     return new Promise((resolve) => {
+        if (!srv || !nomeSeguro(srv.Nome)) return resolve('not_found');
         if (srv.Tipo === 'Servico') {
-            exec(`sc query "${srv.Nome}"`, (err, stdout) => {
+            // execFile (sem shell): não abre um cmd.exe a cada consulta de status
+            execFile('sc', ['query', srv.Nome], (err, stdout) => {
+                stdout = stdout || '';
                 if (stdout.includes('RUNNING')) resolve('running');
                 else if (stdout.includes('STOPPED')) resolve('stopped');
                 else if (stdout.includes('PENDING')) resolve('transition');
@@ -447,8 +556,8 @@ ipcMain.handle('check-status', async (event, srv) => {
         } else {
             // Processo App (.exe)
             const procName = ensureExeSuffix(srv.Nome);
-            exec(`tasklist /FI "IMAGENAME eq ${procName}" /NH`, (err, stdout) => {
-                if (stdout.includes(procName)) resolve('running');
+            execFile('tasklist', ['/FI', `IMAGENAME eq ${procName}`, '/NH'], (err, stdout) => {
+                if ((stdout || '').includes(procName)) resolve('running');
                 else resolve('stopped'); // não detecta transição em .exe normal por tasklist simple
             });
         }
@@ -458,7 +567,8 @@ ipcMain.handle('check-status', async (event, srv) => {
 // IA Leve de auto-serviço
 ipcMain.handle('detectar-tipo', async (event, nome) => {
     return new Promise(resolve => {
-        exec(`sc query "${nome}"`, (err) => {
+        if (!nomeSeguro(nome)) return resolve('Aplicacao');
+        execFile('sc', ['query', nome], { windowsHide: true }, (err) => {
             if (err && err.code !== 0) resolve('Aplicacao');
             else resolve('Servico');
         });
@@ -471,8 +581,8 @@ const waitForServiceStatus = (name, targetStatus, timeoutMs = 20000) => {
     return new Promise(resolve => {
         const start = Date.now();
         const check = () => {
-            exec(`sc query "${name}"`, (err, stdout) => {
-                if (stdout.includes(targetStatus)) return resolve(true);
+            execFile('sc', ['query', name], (err, stdout) => {
+                if ((stdout || '').includes(targetStatus)) return resolve(true);
                 if (Date.now() - start > timeoutMs) return resolve(false);
                 setTimeout(check, 400);
             });
@@ -484,7 +594,7 @@ const waitForServiceStatus = (name, targetStatus, timeoutMs = 20000) => {
 // Verifica se um processo (pelo nome do .exe) ainda está de pé — via tasklist, não via status do SCM
 // (o SCM pode reportar "STOPPED" antes do processo liberar de fato o handle do arquivo)
 const isProcessRunning = (exeName) => new Promise((resolve) => {
-    exec(`tasklist /FI "IMAGENAME eq ${exeName}" /NH`, (err, stdout) => {
+    execFile('tasklist', ['/FI', `IMAGENAME eq ${exeName}`, '/NH'], (err, stdout) => {
         resolve(!!stdout && stdout.toLowerCase().includes(exeName.toLowerCase()));
     });
 });
@@ -499,12 +609,16 @@ const isAccessDeniedError = (error, stdout, stderr) => {
 ipcMain.handle('manage-server', async (event, { srv, action }) => {
     return new Promise((resolve) => {
         const sendUiLog = (text, c = '#a6adc8') => { sendLog(text, c, 'servidores'); };
+        if (!srv || !nomeSeguro(srv.Nome)) {
+            sendUiLog(`ERRO: nome de serviço/aplicação inválido (${srv && srv.Nome}).`, '#f38ba8');
+            return resolve(false);
+        }
         const procName = ensureExeSuffix(srv.Nome);
         const pureName = srv.Nome;
 
         if (action === 'start') {
             if (srv.Tipo === 'Servico') {
-                exec(`sc start "${pureName}"`, async (error, stdout, stderr) => {
+                execFile('sc', ['start', pureName], { windowsHide: true }, async (error, stdout, stderr) => {
                     if (error) {
                         const out = (stdout || stderr || '').trim();
                         sendUiLog(`ERRO ao iniciar ${pureName}: ${out || error.message}`, '#f38ba8');
@@ -521,7 +635,7 @@ ipcMain.handle('manage-server', async (event, { srv, action }) => {
             }
         } else if (action === 'stop' || action === 'kill') {
             if (srv.Tipo === 'Servico') {
-                exec(`sc stop "${pureName}"`, async (error, stdout, stderr) => {
+                execFile('sc', ['stop', pureName], { windowsHide: true }, async (error, stdout, stderr) => {
                     let out = (stdout || stderr || '').trim();
 
                     if (isAccessDeniedError(error, stdout, stderr)) {
@@ -546,7 +660,7 @@ ipcMain.handle('manage-server', async (event, { srv, action }) => {
                     for (let i = 0; i < 8; i++) {
                         const running = await isProcessRunning(procName);
                         if (!running) break;
-                        const killResult = await new Promise((res) => exec(`taskkill /F /IM "${procName}"`, (e, so, se) => res({ e, so, se })));
+                        const killResult = await new Promise((res) => execFile('taskkill', ['/F', '/IM', procName], { windowsHide: true }, (e, so, se) => res({ e, so, se })));
                         if (isAccessDeniedError(killResult.e, killResult.so, killResult.se)) {
                             deniedOnKill = true;
                             break;
@@ -566,7 +680,7 @@ ipcMain.handle('manage-server', async (event, { srv, action }) => {
                     resolve(true);
                 });
             } else {
-                exec(`taskkill /F /IM "${procName}"`, (error, stdout, stderr) => {
+                execFile('taskkill', ['/F', '/IM', procName], { windowsHide: true }, (error, stdout, stderr) => {
                     if (isAccessDeniedError(error, stdout, stderr)) {
                         const msg = `Acesso negado ao encerrar "${procName}". Execute o ExeBoard como Administrador antes de copiar.`;
                         sendUiLog(msg, '#f38ba8');
@@ -662,8 +776,8 @@ const secureCopyFile = async (src, dest) => {
                 // Antes de tentar de novo, força o encerramento pelo nome do executável de destino.
                 if (isLockError) {
                     const destExeName = path.basename(dest);
-                    if (destExeName.toLowerCase().endsWith('.exe')) {
-                        await new Promise((resolve) => exec(`taskkill /F /IM "${destExeName}"`, () => resolve()));
+                    if (destExeName.toLowerCase().endsWith('.exe') && nomeSeguro(destExeName)) {
+                        await new Promise((resolve) => execFile('taskkill', ['/F', '/IM', destExeName], { windowsHide: true }, () => resolve()));
                     }
                 }
 
@@ -748,12 +862,26 @@ const indexarDiretorio = async (startDir) => {
     return { fileMap, dirMap, ambiguousDirNames };
 };
 
+// Uma pasta com MUITAS subpastas no primeiro nível (ex.: a ERP, com ~1000 branches) não é uma branch:
+// varrê-la leria todas as branches e o "exe mais novo" de cada nome viria de uma branch qualquer.
+const MAX_SUBPASTAS_BRANCH = 100;
+const ehRaizDeBranches = async (dir) => {
+    try {
+        const entries = await fs.readdir(dir, { withFileTypes: true });
+        return entries.filter(e => e.isDirectory()).length > MAX_SUBPASTAS_BRANCH;
+    } catch (e) {
+        return false;
+    }
+};
+
 // Cache de indexação para unificar varredura (validate-branch + build-queue usam mesmo scan).
 // TTL curto: o objetivo é só evitar escanear a árvore duas vezes dentro do mesmo clique em
 // "Copiar Dados" (validate-branch seguido de build-queue) — não sobreviver a retentativas do
 // usuário depois de alterar/rebuildar a Branch.
 const BRANCH_CACHE_TTL_MS = 8000;
 let branchScanCache = { path: '', timestamp: 0, data: null };
+let branchScanPending = null;      // varredura em andamento (reaproveitada por quem pedir a mesma pasta)
+let branchScanPendingPath = '';
 
 const getCachedBranchIndex = async (dirPath) => {
     const normalized = path.normalize(dirPath).toLowerCase();
@@ -762,12 +890,23 @@ const getCachedBranchIndex = async (dirPath) => {
         (Date.now() - branchScanCache.timestamp < BRANCH_CACHE_TTL_MS)) {
         return branchScanCache.data;
     }
-    const result = await indexarDiretorio(dirPath);
-    branchScanCache = { path: normalized, timestamp: Date.now(), data: result };
-    return result;
+    // Conferência de idade e de versão pedem o índice ao mesmo tempo: uma varredura só do Drive
+    if (branchScanPending && branchScanPendingPath === normalized) return branchScanPending;
+
+    const varredura = indexarDiretorio(dirPath)
+        .then((result) => {
+            branchScanCache = { path: normalized, timestamp: Date.now(), data: result };
+            return result;
+        })
+        .finally(() => {
+            if (branchScanPending === varredura) { branchScanPending = null; branchScanPendingPath = ''; }
+        });
+    branchScanPending = varredura;
+    branchScanPendingPath = normalized;
+    return varredura;
 };
 
-// ==== MOTOR RECURSIVO PARA ATUALIZADORES (BD) ====
+// ==== MOTOR RECURSIVO PARA AS PASTAS DOS .CDS (BD) ====
 const copyFolderRecursive = async (src, dest) => {
     if (copyCancelToken) return 'cancelled';
 
@@ -866,6 +1005,7 @@ ipcMain.handle('execute-copy-files', async (event, queueData) => {
         }
     };
 
+    copyInProgress = true; // antes de criar os workers: eles começam a copiar assim que nascem
     const workers = Array.from({ length: Math.min(CONCURRENCY, total) }, async () => {
         while (taskIndex < total) {
             if (copyCancelToken) break;
@@ -874,7 +1014,11 @@ ipcMain.handle('execute-copy-files', async (event, queueData) => {
         }
     });
 
-    await Promise.all(workers);
+    try {
+        await Promise.all(workers);
+    } finally {
+        copyInProgress = false;
+    }
 
     return { status: copyCancelToken ? 'cancelled' : 'completed', errors, news, skipped };
 });
@@ -917,24 +1061,31 @@ ipcMain.handle('build-queue', async (event, { reqs, branchRoot }) => {
             let pureName = (req.type === 'client' || req.type === 'server' ? req.itemData.Nome : req.itemData.Nome || req.itemData).toLowerCase();
 
             if (req.type === 'bd') {
-                // Lógica de Atualizadores (Pastas) com Fallback Inteligente
+                // Lógica das Pastas dos .cds (bancos) com Fallback Inteligente
                 const cleanBdName = pureName.replace(/^(bd|dados)[\\\/]/i, '').trim();
-                let sourceFolder = sourceDirMap.get(pureName) ||
+                const pureNorm = pureName.replace(/\//g, '\\');
+                // 1) caminhos inequívocos: o que foi cadastrado já com caminho (bd\x, a\b) ou bd\<nome> / dados\<nome>
+                let sourceFolder = (pureNorm.includes('\\') ? sourceDirMap.get(pureNorm) : null) ||
                                    sourceDirMap.get('bd\\' + cleanBdName) ||
                                    sourceDirMap.get('dados\\' + cleanBdName);
 
-                // Último fallback (nome puro, sem prefixo) só é seguro quando existe UMA única pasta
-                // com esse nome na árvore inteira — caso contrário poderíamos copiar dados da pasta errada.
+                // 2) pelo nome puro. Só é seguro quando a pasta está no primeiro nível da Branch ou quando existe UMA
+                // única pasta com esse nome na árvore inteira — com duas em lugares diferentes poderíamos copiar os
+                // dados da pasta errada, então avisa e pula (antes o aviso nunca era alcançado para nomes simples).
                 if (!sourceFolder) {
-                    if (ambiguousDirNames.has(cleanBdName)) {
-                        sendLog(`X Ambíguo: existem várias pastas chamadas "${cleanBdName}" na Branch. Organize-a em bd\\${cleanBdName} ou dados\\${cleanBdName} para evitar copiar a pasta errada.`, '#f38ba8', 'copiar');
-                        continue;
+                    const porNome = sourceDirMap.get(cleanBdName);
+                    if (porNome) {
+                        const noPrimeiroNivel = !path.relative(branchRoot, porNome.fullPath).includes(path.sep);
+                        if (ambiguousDirNames.has(cleanBdName) && !noPrimeiroNivel) {
+                            sendLog(`X Ambíguo: existem várias pastas chamadas "${cleanBdName}" na Branch. Organize-a em bd\\${cleanBdName} ou dados\\${cleanBdName} para evitar copiar a pasta errada.`, '#f38ba8', 'copiar');
+                            continue;
+                        }
+                        sourceFolder = porNome;
                     }
-                    sourceFolder = sourceDirMap.get(cleanBdName);
                 }
 
                 if (!sourceFolder) {
-                    sendLog(`X Pasta de Atualizador não encontrada: ${pureName}`, '#bac2de', 'copiar');
+                    sendLog(`X Pasta dos .cds não encontrada na Branch: ${pureName}`, '#bac2de', 'copiar');
                     continue;
                 }
 
@@ -1037,8 +1188,8 @@ ipcMain.handle('open-folder-dialog', async (event, defaultPath) => {
 ipcMain.handle('get-windows-services', async () => {
     return new Promise(resolve => {
         // Coleta serviços usando PowerShell em formato JSON para fácil parse
-        const cmd = `powershell "Get-Service | Select-Object Name, DisplayName, Status | ConvertTo-Json"`;
-        exec(cmd, { maxBuffer: 1024 * 1024 * 5 }, (err, stdout) => {
+        execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', 'Get-Service | Select-Object Name, DisplayName, Status | ConvertTo-Json'],
+            { maxBuffer: 1024 * 1024 * 5, windowsHide: true }, (err, stdout) => {
             if (err) return resolve([]);
             try {
                 const data = JSON.parse(stdout);
@@ -1108,22 +1259,34 @@ ipcMain.handle('open-multi-files', async (event, defaultPath) => {
     return res.filePaths;
 });
 
-ipcMain.handle('execute-external', async (event, exePath) => {
-    exec(`start "" "${exePath}"`, (err) => {
-        if (err) sendLog(`Erro ao executar ${exePath}: ${err.message}`, '#f38ba8', 'copiar');
-        else sendLog(`Programa ${exePath} iniciado na nuvem de Processos.`, '#a6adc8', 'copiar');
-    });
+// Abre uma pasta, arquivo ou endereço web com o programa padrão do Windows. Não passa por shell (nada de
+// montar "start ..." com texto vindo de fora): endereço http(s) vai ao navegador; o resto, ao shell do SO.
+ipcMain.handle('execute-external', async (event, alvo) => {
+    if (typeof alvo !== 'string' || !alvo.trim()) return;
+    try {
+        if (/^https?:\/\//i.test(alvo)) {
+            await shell.openExternal(alvo);
+        } else {
+            const erro = await shell.openPath(alvo); // string vazia = sucesso
+            if (erro) throw new Error(erro);
+        }
+        sendLog(`Programa ${alvo} iniciado na nuvem de Processos.`, '#a6adc8', 'copiar');
+    } catch (err) {
+        sendLog(`Erro ao executar ${alvo}: ${err.message}`, '#f38ba8', 'copiar');
+    }
 });
 
 ipcMain.handle('open-external-url', async (event, url) => {
-    shell.openExternal(url);
+    // só endereços web: impede abrir file:, ms-msdt: e outros protocolos a partir da tela
+    if (typeof url === 'string' && /^https?:\/\//i.test(url)) await shell.openExternal(url);
 });
 
 // ==== ITEM 2: Fechar processos clientes antes da cópia ====
 ipcMain.handle('kill-process', async (event, processName) => {
     return new Promise((resolve) => {
         const name = ensureExeSuffix(processName);
-        exec(`taskkill /F /IM "${name}"`, (err, stdout, stderr) => {
+        if (!nomeSeguro(name)) return resolve({ killed: false, msg: 'Nome de processo inválido.' });
+        execFile('taskkill', ['/F', '/IM', name], { windowsHide: true }, (err, stdout, stderr) => {
             if (err) {
                 resolve({ killed: false, msg: (stderr || err.message).trim() });
             } else {
@@ -1139,6 +1302,10 @@ ipcMain.handle('validate-branch', async (event, { branchPath, fileNames }) => {
         const exists = await fs.pathExists(branchPath);
         if (!exists) {
             return { valid: false, scenario: 'not_found' };
+        }
+
+        if (await ehRaizDeBranches(branchPath)) {
+            return { valid: false, scenario: 'root_branches' };
         }
 
         if (!fileNames || fileNames.length === 0) {
@@ -1166,75 +1333,224 @@ ipcMain.handle('validate-branch', async (event, { branchPath, fileNames }) => {
     }
 });
 
+// ==== Aviso de executáveis antigos na pasta da Branch ====
+// Reaproveita o índice da branch (cache curto) — só consulta a data de modificação (mtime) dos
+// executáveis cadastrados que existem na pasta. Na pasta do Google Drive a data de CRIAÇÃO costuma
+// ser a do sincronismo, não a do build; a de modificação é a que reflete quando o exe foi gerado.
+ipcMain.handle('check-exe-age', async (event, { branchPath, fileNames } = {}) => {
+    const vazio = { checked: 0, old: [], warnDays: EXE_AGE_WARN_DAYS };
+    try {
+        if (!branchPath || !Array.isArray(fileNames) || fileNames.length === 0) return vazio;
+        if (!(await fs.pathExists(branchPath))) return vazio;
+        if (await ehRaizDeBranches(branchPath)) return vazio; // pasta com todas as branches (ERP): não é uma branch, não varre
+
+        const { fileMap } = await getCachedBranchIndex(branchPath);
+        const now = Date.now();
+        const found = [];
+        for (const nome of fileNames) {
+            const exe = ensureExeSuffix(nome);
+            const entry = fileMap.get(exe.toLowerCase());
+            if (!entry) continue;
+            found.push({ name: exe, ageDays: Math.floor((now - entry.mtime) / 86400000) });
+        }
+        const old = found.filter(f => f.ageDays > EXE_AGE_WARN_DAYS).sort((a, b) => b.ageDays - a.ageDays);
+        return { checked: found.length, old, warnDays: EXE_AGE_WARN_DAYS };
+    } catch (err) {
+        log.warn('check-exe-age falhou:', err.message);
+        return vazio;
+    }
+});
+
+// ==== Versão dos executáveis -> perfil (733 = versão 4.x, 734 = versão 5.x) ====
+// Lê a versão (FileVersion) de UM exe da pasta da branch, via Windows (FileVersionInfo). O resultado
+// fica em cache por arquivo+data+tamanho, então a pasta do Drive só é lida uma vez por build.
+const versaoExeCache = new Map();
+const lerVersaoExe = (fullPath) => new Promise((resolve) => {
+    execFile('powershell',
+        ['-NoProfile', '-NonInteractive', '-Command', '[System.Diagnostics.FileVersionInfo]::GetVersionInfo($env:EXEBOARD_ARQ).FileVersion'],
+        { env: { ...process.env, EXEBOARD_ARQ: fullPath }, timeout: 30000, windowsHide: true },
+        (err, stdout) => resolve(err ? null : ((stdout || '').trim() || null)));
+});
+const perfilDaVersao = (versao) => {
+    const m = /^(\d+)\./.exec(versao || '');
+    if (!m) return null;
+    if (m[1] === '4') return '733';
+    if (m[1] === '5') return '734';
+    return null; // outra versão: não sugere perfil
+};
+
+ipcMain.handle('get-branch-version', async (event, { branchPath, fileNames } = {}) => {
+    const vazio = { version: null, file: null, perfil: null };
+    try {
+        if (!branchPath || !Array.isArray(fileNames) || fileNames.length === 0) return vazio;
+        if (!(await fs.pathExists(branchPath))) return vazio;
+        if (await ehRaizDeBranches(branchPath)) return vazio; // pasta com todas as branches: não é uma branch
+
+        const { fileMap } = await getCachedBranchIndex(branchPath);
+        // Alguns exes (ex.: stubs) têm versão tipo 1.0.0.0: ignora os que não indicam um lote e tenta o
+        // próximo, examinando no máximo 4 exes para não ler a pasta do Drive à toa.
+        let primeiro = null;
+        let examinados = 0;
+        for (const nome of fileNames) {
+            if (examinados >= 4) break;
+            const exe = ensureExeSuffix(nome);
+            const entry = fileMap.get(exe.toLowerCase());
+            if (!entry) continue;
+            examinados++;
+            const chave = `${entry.fullPath}|${entry.mtime}|${entry.size}`;
+            let versao = versaoExeCache.get(chave);
+            if (versao === undefined) {
+                versao = await lerVersaoExe(entry.fullPath);
+                versaoExeCache.set(chave, versao);
+            }
+            if (!versao) continue; // sem versão legível
+            const perfil = perfilDaVersao(versao);
+            if (perfil) return { version: versao, file: exe, perfil };
+            if (!primeiro) primeiro = { version: versao, file: exe, perfil: null };
+        }
+        return primeiro || vazio;
+    } catch (err) {
+        log.warn('get-branch-version falhou:', err.message);
+        return vazio;
+    }
+});
+
+// ==== Configuração padrão (primeira instalação) ====
+// Os valores ficam em config-padrao.json (na raiz do app), separados do código, pra poderem
+// ser ajustados sem mexer em JavaScript.
+ipcMain.handle('get-default-config', async () => {
+    try {
+        return { data: await fs.readJson(path.join(__dirname, 'config-padrao.json')) };
+    } catch (err) {
+        return { error: err.message };
+    }
+});
+
+// ==== BITBUCKET (listagem de branches, verificação e extração) ====
+// Toda a comunicação com a API fica aqui no backend (a tela só chama os comandos): assim não depende de
+// CORS/CSP do navegador embutido e os erros chegam à tela com o motivo real.
+const BB_API = 'https://api.bitbucket.org/2.0';
+const bbHeaders = (user, token) => ({ 'Authorization': 'Basic ' + Buffer.from(`${user}:${token}`).toString('base64') });
+
+// Valor entre aspas numa consulta BbQL (name = "...")
+const bbq = (valor) => String(valor).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
+// Mensagem amigável para uma resposta de erro da API (ex.: 403 por falta de 2FA não pode virar "nenhuma branch")
+async function bbMensagemErro(res, contexto) {
+    let detalhe = '';
+    try {
+        const txt = await res.text();
+        try {
+            const j = JSON.parse(txt);
+            detalhe = (j.error && (j.error.message || j.error.detail)) || j.message || '';
+        } catch (e) { detalhe = txt.slice(0, 200); }
+    } catch (e) { /* sem corpo */ }
+
+    let motivo;
+    if (res.status === 401) motivo = 'usuário ou API Token inválido (401). Confira o e-mail e o token.';
+    else if (res.status === 403) motivo = `acesso negado (403)${detalhe ? ': ' + detalhe : ''}. Confira se a conta tem a verificação em duas etapas ativa e se o token tem permissão de leitura do repositório.`;
+    else if (res.status === 404) motivo = 'workspace ou repositório não encontrado (404). Confira os nomes.';
+    else if (res.status === 429) motivo = 'muitas requisições ao Bitbucket (429). Aguarde um instante e tente de novo.';
+    else motivo = `erro ${res.status}${detalhe ? ': ' + detalhe : ''}`;
+    return contexto ? `${contexto}: ${motivo}` : motivo;
+}
+
+const bbErroRede = (err) => `Sem conexão com o Bitbucket (${err && err.message ? err.message : err}). Verifique a internet/VPN.`;
+
+// Lista branches para o autocomplete. Devolve { branches, error }: erro real em vez de lista vazia.
+ipcMain.handle('list-branches', async (event, config) => {
+    const { workspace, repo, user, appPassword, searchTerm } = config || {};
+    if (!workspace || !repo || !user || !appPassword) {
+        return { branches: [], error: 'Preencha Workspace, Repositório, Usuário e API Token acima para listar as branches.' };
+    }
+    try {
+        let url = `${BB_API}/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repo)}/refs/branches?sort=-target.date&pagelen=20`;
+        if (searchTerm) url += `&q=${encodeURIComponent(`name ~ "${bbq(searchTerm)}"`)}`;
+        const res = await fetch(url, { headers: bbHeaders(user, appPassword) });
+        if (!res.ok) return { branches: [], error: await bbMensagemErro(res, 'Não foi possível listar as branches') };
+        const data = await res.json();
+        return { branches: (data.values || []).map(b => b.name), error: null };
+    } catch (err) {
+        return { branches: [], error: bbErroRede(err) };
+    }
+});
+
+// Arquivos alterados entre a branch da tarefa e a base (diffstat), seguindo TODAS as páginas da API.
+// Devolve { ok:true, tasks:[{path, branchUrl, baseUrl}] } ou { ok:false, msg }.
+async function bbListarAlterados({ workspace, repo, user, appPassword, base, branch }) {
+    const headers = bbHeaders(user, appPassword);
+    const repoUrl = `${BB_API}/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repo)}`;
+
+    const getHash = async (bName) => {
+        const res = await fetch(`${repoUrl}/refs/branches?q=${encodeURIComponent(`name = "${bbq(bName)}"`)}`, { headers });
+        if (!res.ok) throw new Error(await bbMensagemErro(res, `Erro na API ao buscar a branch "${bName}"`));
+        const d = await res.json();
+        if (!d.values || d.values.length === 0) return null;
+        return d.values[0].target.hash;
+    };
+
+    const baseHash = await getHash(base);
+    if (!baseHash) return { ok: false, msg: `Branch base '${base}' não encontrada.`, detalhe: `A branch base '${base}' não foi encontrada no repositório.` };
+    const branchHash = await getHash(branch);
+    if (!branchHash) return { ok: false, msg: `Branch da tarefa '${branch}' não encontrada.`, detalhe: `A branch da tarefa '${branch}' não foi encontrada no repositório.` };
+
+    const tasks = [];
+    const vistos = new Set();
+    let url = `${repoUrl}/diffstat/${branchHash}..${baseHash}`;
+    for (let pagina = 0; url && pagina < 100; pagina++) { // teto de 100 páginas: nunca entra em laço infinito
+        const res = await fetch(url, { headers });
+        if (!res.ok) throw new Error(await bbMensagemErro(res, 'Falha no DiffStat'));
+        const data = await res.json();
+        for (const item of (data.values || [])) {
+            if (item.status === 'removed') continue;
+            const filePath = (item.new && item.new.path) || (item.old && item.old.path);
+            if (!filePath || vistos.has(filePath)) continue;
+            vistos.add(filePath);
+            tasks.push({
+                path: filePath,
+                branchUrl: item.new && item.new.links && item.new.links.self && item.new.links.self.href,
+                baseUrl: item.old && item.old.links && item.old.links.self && item.old.links.self.href
+            });
+        }
+        url = data.next || null;
+    }
+    return { ok: true, tasks, branchHash, baseHash };
+}
+
+// "Verificar Arquivos": só lista o que seria baixado
+ipcMain.handle('verify-bitbucket', async (event, config) => {
+    try {
+        const r = await bbListarAlterados(config || {});
+        if (!r.ok) return { success: false, msg: r.detalhe || r.msg };
+        return { success: true, files: r.tasks.map(t => path.basename(t.path)) };
+    } catch (err) {
+        return { success: false, msg: (err && err.message && !/fetch failed/i.test(err.message)) ? err.message : bbErroRede(err) };
+    }
+});
+
 // ==== MOTOR DE EXTRAÇÃO BITBUCKET ====
 ipcMain.handle('extract-bitbucket', async (event, config) => {
     const { workspace, repo, user, appPassword, base, branch, targetDir } = config;
-    
-    // Auth header
-    const authHeader = 'Basic ' + Buffer.from(`${user}:${appPassword}`).toString('base64');
-    const headers = { 'Authorization': authHeader };
-    
+    const headers = bbHeaders(user, appPassword);
+
     try {
         sendLog('Iniciando comunicação com Bitbucket API...', '#89b4fa', 'copiar');
-        
-        // 1. Obter Hashes das Branches
-        const getHash = async (bName) => {
-            const q = `name = "${bName}"`;
-            const u = `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repo)}/refs/branches?q=${encodeURIComponent(q)}`;
-            const r = await fetch(u, { headers });
-            if (!r.ok) throw new Error(`Erro na API ao buscar a branch: ${bName}`);
-            const d = await r.json();
-            if (!d.values || d.values.length === 0) return null;
-            return d.values[0].target.hash;
-        };
 
-        const baseHash = await getHash(base);
-        if (!baseHash) {
-            sendLog(`ERRO: A branch base '${base}' não foi encontrada no repositório.`, '#f38ba8', 'copiar');
-            return { success: false, msg: `Branch base '${base}' não encontrada.` };
+        // 1. Branches e DiffStat (todas as páginas)
+        const lista = await bbListarAlterados(config);
+        if (!lista.ok) {
+            sendLog(`ERRO: ${lista.detalhe}`, '#f38ba8', 'copiar');
+            return { success: false, msg: lista.msg };
         }
+        sendLog(`Branches localizadas. Hashes: ${lista.branchHash.substring(0, 7)}..${lista.baseHash.substring(0, 7)}`, '#a6adc8', 'copiar');
 
-        const branchHash = await getHash(branch);
-        if (!branchHash) {
-            sendLog(`ERRO: A branch da tarefa '${branch}' não foi encontrada no repositório.`, '#f38ba8', 'copiar');
-            return { success: false, msg: `Branch da tarefa '${branch}' não encontrada.` };
-        }
-
-        sendLog(`Branches localizadas. Hashes: ${branchHash.substring(0,7)}..${baseHash.substring(0,7)}`, '#a6adc8', 'copiar');
-
-        // 2. Obter DiffStat usando os Hashes
-        const diffUrl = `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(repo)}/diffstat/${branchHash}..${baseHash}`;
-        const diffRes = await fetch(diffUrl, { headers });
-        
-        if (!diffRes.ok) {
-            const errText = await diffRes.text();
-            throw new Error(`Falha no DiffStat (${diffRes.status}): ${errText}`);
-        }
-        
-        const diffData = await diffRes.json();
-        
-        // Extrair caminhos únicos e links diretos da API
-        const downloadTasks = [];
-        for (const item of (diffData.values || [])) {
-            if (item.status === 'removed') continue;
-            
-            const filePath = item.new?.path || item.old?.path;
-            if (filePath && !downloadTasks.some(t => t.path === filePath)) {
-                downloadTasks.push({
-                    path: filePath,
-                    branchUrl: item.new?.links?.self?.href,
-                    baseUrl: item.old?.links?.self?.href
-                });
-            }
-        }
-        
+        const downloadTasks = lista.tasks;
         if (downloadTasks.length === 0) {
             sendLog('Nenhum arquivo modificado encontrado entre as branches.', '#f38ba8', 'copiar');
             return { success: false, msg: 'Sem alterações' };
         }
-        
         sendLog(`DiffStat concluído: ${downloadTasks.length} arquivo(s) modificado(s).`, '#a6adc8', 'copiar');
-        
+
         // 2. Preparar Diretórios (Nova Estrutura Achatada)
         // Raiz: {targetDir}/{repo}
         const extractRoot = path.join(targetDir, repo);
@@ -1243,49 +1559,48 @@ ipcMain.handle('extract-bitbucket', async (event, config) => {
         // Subpasta dinâmica: nome da base higienizado (barras viram hifens)
         const baseSafe = base.replace(/\//g, '-').replace(/[<>:"\\|?*]/g, '_');
         const dirBase = path.join(extractRoot, baseSafe);
-        
+
         // Garante que as pastas existam E estejam vazias para evitar mistura de arquivos antigos
         await fs.emptyDir(dirBranch);
         await fs.emptyDir(dirBase);
-        
+
         sendLog(`Estrutura limpa/criada em: ${extractRoot}`, '#a6adc8', 'copiar');
-        
+
         // 3. Download Concorrente (Lotes de 5) — Flatten + Nomenclatura Dinâmica
         const ausentesBase = [];
         let concluido = 0;
-        
+
         const downloadFlatUrl = async (url, originalFilePath, targetFolder, renameFn) => {
             if (!url) return false;
-            
+
             const res = await fetch(url, { headers });
-            
+
             if (!res.ok) {
-                const errText = await res.text();
-                throw new Error(`HTTP ${res.status}: ${errText}`);
+                throw new Error(await bbMensagemErro(res));
             }
-            
+
             // Flatten: usa apenas o basename do arquivo, sem recriar diretórios
             const originalName = path.basename(originalFilePath);
             const finalName = renameFn ? renameFn(originalName) : originalName;
             const destPath = path.join(targetFolder, finalName);
-            
+
             const buffer = await res.arrayBuffer();
             await fs.writeFile(destPath, Buffer.from(buffer));
             return true;
         };
-        
+
         // Função de renomeação para arquivos da Base: arquivo(base).ext
         const renameForBase = (originalName) => {
             const parsed = path.parse(originalName);
             return `${parsed.name}(${baseSafe})${parsed.ext}`;
         };
-        
+
         for (let i = 0; i < downloadTasks.length; i += 5) {
             const batch = downloadTasks.slice(i, i + 5);
             await Promise.allSettled(batch.map(async (task) => {
                 const { path: filePath, branchUrl, baseUrl } = task;
                 const baseFilename = path.basename(filePath);
-                
+
                 // Download Branch (nome original, achatado)
                 if (branchUrl) {
                     try {
@@ -1294,7 +1609,7 @@ ipcMain.handle('extract-bitbucket', async (event, config) => {
                         sendLog(`[ERRO] Falha ao baixar ${baseFilename} (Tarefa): ${e.message}`, '#f87171', 'copiar');
                     }
                 }
-                
+
                 // Download Base (nome com sufixo da base, achatado)
                 if (baseUrl) {
                     try {
@@ -1306,24 +1621,25 @@ ipcMain.handle('extract-bitbucket', async (event, config) => {
                 } else {
                     ausentesBase.push(filePath);
                 }
-                
+
                 concluido++;
                 sendLog(`Progresso: [${concluido}/${downloadTasks.length}] ${baseFilename}`, '#a6adc8', 'copiar');
             }));
         }
-        
+
         // 4. Fechamento e Log de Ausentes
         if (ausentesBase.length > 0) {
             await fs.writeFile(path.join(dirBase, 'arquivos_ausentes.txt'), ausentesBase.join('\n'));
             sendLog(`Aviso: ${ausentesBase.length} arquivo(s) novo(s) ignorado(s) na pasta ${baseSafe} (registrados em txt).`, '#fbbf24', 'copiar');
         }
-        
+
         sendLog('🎉 Extração Concluída com Sucesso!', '#4ade80', 'copiar');
         return { success: true, root: extractRoot };
-        
+
     } catch (err) {
-        sendLog(`Erro Crítico na Extração: ${err.message}`, '#f38ba8', 'copiar');
-        return { success: false, msg: err.message };
+        const msg = (err && err.message && !/fetch failed/i.test(err.message)) ? err.message : bbErroRede(err);
+        sendLog(`Erro Crítico na Extração: ${msg}`, '#f38ba8', 'copiar');
+        return { success: false, msg };
     }
 });
 

@@ -23,18 +23,21 @@
     "electron-log": "^5.4.3",
     "electron-updater": "^6.8.3",
     "fs-extra": "^11.3.4",
-    "ini": "^6.0.0",
-    "ts-node": "^10.9.2"
+    "ini": "^6.0.0"
   },
   "build": {
     "appId": "com.viasoft.exeboard",
     "asar": true,
+    "compression": "maximum",
+    "electronLanguages": ["pt-BR", "en-US"],
     "directories": {
       "buildResources": "assets"
     },
     "files": [
       "**/*",
-      "assets/*"
+      "assets/*",
+      "!**/*.map",
+      "!**/*.d.ts"
     ],
     "publish": [
       {
