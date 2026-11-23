@@ -1,6 +1,6 @@
 [package]
 name = "exeboard"
-version = "3.1.1"
+version = "3.1.2"
 description = "ExeBoard - copia executáveis e pastas de banco entre branches e o ambiente de testes"
 authors = ["Viasoft"]
 edition = "2021"

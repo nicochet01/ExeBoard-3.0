@@ -1,7 +1,7 @@
 {
   "name": "exeboard-tauri",
   "private": true,
-  "version": "3.1.1",
+  "version": "3.1.2",
   "description": "ExeBoard em Tauri (backend Rust + a mesma interface do app Electron)",
   "scripts": {
     "sync-ui": "node scripts/sync-ui.js",
