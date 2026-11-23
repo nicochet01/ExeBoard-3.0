@@ -401,3 +401,34 @@ pub async fn pr_base_branch(config: Value) -> Result<Value, String> {
         None => Ok(json!({ "base": null, "error": null })),
     }
 }
+
+/// Verificação rápida das credenciais ao abrir o Extrator Cloud: consulta os pull requests de uma branch que não existe
+/// (resposta vazia e leve) só para saber se o Bitbucket aceita o token e se ele pode ler pull requests.
+/// `status`: `ok` | `sem_pr` (token sem a permissão de pull requests, 403) | `invalido` (401: App password, token sem
+/// escopos, expirado ou e-mail errado) | `incompleto` (faltam campos) | `sem_conexao` | `erro` (outro código, com `codigo`).
+#[tauri::command]
+pub async fn check_bitbucket_token(config: Value) -> Result<Value, String> {
+    let (ws, repo, user, token) = (campo(&config, "workspace"), campo(&config, "repo"), campo(&config, "user"), campo(&config, "appPassword"));
+    if ws.is_empty() || repo.is_empty() || user.is_empty() || token.is_empty() {
+        return Ok(json!({ "status": "incompleto" }));
+    }
+    let mut url = url_repo(&ws, &repo, &["pullrequests"])?;
+    url.query_pairs_mut()
+        .append_pair("q", "source.branch.name = \"__exeboard_verificacao__\"")
+        .append_pair("pagelen", "1")
+        .append_pair("fields", "size");
+    let res = match cliente().get(url).basic_auth(&user, Some(&token)).timeout(Duration::from_secs(15)).send().await {
+        Err(_) => return Ok(json!({ "status": "sem_conexao" })),
+        Ok(r) => r,
+    };
+    let status = res.status();
+    if status.is_success() {
+        return Ok(json!({ "status": "ok" }));
+    }
+    let corpo = res.text().await.unwrap_or_default().to_lowercase();
+    Ok(match status {
+        StatusCode::UNAUTHORIZED => json!({ "status": "invalido" }),
+        StatusCode::FORBIDDEN if corpo.contains("scope") => json!({ "status": "sem_pr" }),
+        s => json!({ "status": "erro", "codigo": s.as_u16() }),
+    })
+}

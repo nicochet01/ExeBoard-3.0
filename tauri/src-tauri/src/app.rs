@@ -156,6 +156,7 @@ pub fn run() {
             crate::bitbucket::verify_bitbucket,
             crate::bitbucket::extract_bitbucket,
             crate::bitbucket::pr_base_branch,
+            crate::bitbucket::check_bitbucket_token,
             crate::ui_cmds::folder_open_in_explorer,
         ])
         .setup(|app| {

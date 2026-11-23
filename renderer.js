@@ -2618,9 +2618,68 @@ document.getElementById('btnSugestoes')?.addEventListener('click', async () => {
     }
 });
 
+// ==== Aviso de token do Bitbucket desatualizado ====
+// Ao abrir o Extrator (e ao trocar usuário/token), uma consulta leve ao Bitbucket diz se o token serve. A faixa só
+// aparece para quem precisa trocar: token sem a permissão de pull requests (403) ou credencial recusada (401: App
+// password, token sem escopos, expirado ou e-mail errado). Quem já está com o token certo não vê nada.
+const LINK_MANUAL_TOKEN = 'https://nimitz.atlassian.net/wiki/x/GoAMPgE';
+let bbTokenCheckToken = 0;
+
+async function verificarTokenBitbucket() {
+    const box = document.getElementById('bbTokenAviso');
+    if (!box || !window.api.checkBitbucketToken) return;
+    const cfg = getBbConfig();
+    if (!cfg.workspace || !cfg.repo || !cfg.user || !cfg.appPassword) { box.style.display = 'none'; return; }
+    const token = ++bbTokenCheckToken;
+    let r = null;
+    try {
+        r = await window.api.checkBitbucketToken({ workspace: cfg.workspace, repo: cfg.repo, user: cfg.user, appPassword: cfg.appPassword });
+    } catch (e) { return; }
+    if (token !== bbTokenCheckToken) return; // as credenciais mudaram enquanto verificava
+    const status = r && r.status;
+    if (status !== 'sem_pr' && status !== 'invalido') { box.style.display = 'none'; return; }
+
+    box.textContent = '';
+    const title = document.createElement('div');
+    title.className = 'age-warning-title';
+    const hint = document.createElement('div');
+    hint.className = 'age-warning-hint';
+    if (status === 'sem_pr') {
+        title.textContent = '⚠️ Seu API Token precisa ser atualizado.';
+        hint.textContent = 'Ele não tem a permissão de pull requests, então o Extrator não consegue preencher a branch base sozinho. Crie um token novo com as permissões de repositório e de pull requests, cole no campo API Token e revogue o token antigo.';
+    } else {
+        title.textContent = '⚠️ O Bitbucket não aceitou o usuário ou o token.';
+        hint.textContent = 'Se você usa uma senha de app (App password) ou um token sem escopos, eles não funcionam mais. Crie um API Token com escopos, use o e-mail da sua conta Atlassian no campo Usuário e revogue o token antigo. Também acontece se o token expirou.';
+    }
+    box.appendChild(title);
+    box.appendChild(hint);
+    const acoes = document.createElement('div');
+    acoes.className = 'aviso-acoes';
+    const manual = document.createElement('button');
+    manual.type = 'button';
+    manual.className = 'btn-secondary age-warning-action';
+    manual.textContent = 'Como criar um token';
+    manual.onclick = () => window.api.openExternal(LINK_MANUAL_TOKEN);
+    const depois = document.createElement('button');
+    depois.type = 'button';
+    depois.className = 'btn-ghost age-warning-action';
+    depois.textContent = 'Lembrar depois';
+    depois.onclick = () => { box.style.display = 'none'; }; // volta a verificar na próxima abertura do Extrator
+    acoes.appendChild(manual);
+    acoes.appendChild(depois);
+    box.appendChild(acoes);
+    box.style.display = 'block';
+}
+
+// Trocou usuário, token, workspace ou repositório: verifica de novo (a faixa some quando o token novo é aceito)
+['bbWorkspace', 'bbRepo', 'bbUser', 'bbPassword'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', verificarTokenBitbucket);
+});
+
 // Botão para abrir o Modal do Bitbucket
 document.getElementById('btnOpenBitbucket')?.addEventListener('click', () => {
     fecharTelasSobrepostas();
     document.getElementById('modalBitbucket').style.display = 'flex';
+    verificarTokenBitbucket();
 });
 

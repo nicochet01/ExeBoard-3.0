@@ -441,6 +441,10 @@ _Abre pelo item **Configurações** do menu lateral, ocupando a área ao lado do
   **429** "muitas requisições", sem rede "Sem conexão com o Bitbucket (…). Verifique a internet/VPN."); lista vazia sem erro → "Nenhuma branch encontrada" (só quando realmente não há).
 - **Verificar Arquivos** (`verify-bitbucket`, backend): resolve o hash das duas branches, consulta o **diffstat** `hashTarefa..hashBase` **seguindo todas as páginas** (`next`, teto de 100) e lista os nomes dos arquivos (sem os removidos).
   Erros: "Erro: Branch base 'X' não encontrada." etc. (mensagem real da API como acima); "Nenhum arquivo modificado encontrado entre as branches.".
+- **Aviso de token desatualizado**: ao abrir o Extrator (e ao trocar Workspace, Repositório, Usuário ou API Token), `check_bitbucket_token` faz uma consulta leve aos pull requests
+  de uma branch inexistente. Só aparece uma faixa quando o token precisa ser trocado: **403 por falta de escopo** → "⚠️ Seu API Token precisa ser atualizado." (falta a permissão de pull requests);
+  **401** → "⚠️ O Bitbucket não aceitou o usuário ou o token." (App password, token sem escopos, token expirado ou usuário que não é o e-mail Atlassian). Ambas pedem para criar o token novo
+  e **revogar o antigo**, com os botões **Como criar um token** (manual no Confluence) e **Lembrar depois** (esconde até a próxima abertura). Com o token certo nada aparece; sem rede ou outro erro, também não.
 - **Branch base pelo pull request**: ao escolher/informar a **Branch da Tarefa**, o backend (`pr_base_branch`) consulta os pull requests do Bitbucket com essa branch de origem
   (o mesmo que o Jira mostra) e usa o **destino** do PR aberto mais recente (sem aberto, o mais recente mergeado/recusado). A base é preenchida sozinha com o texto
   "Preenchida pelo pull request #N (aberto): a tarefa vai para X."; se a pessoa já digitou outra base, ela não é trocada e aparece "O pull request #N vai para X. **Usar X**".

@@ -2095,6 +2095,23 @@ body.light-theme .help-icon::after {
     color: var(--accent);
 }
 
+/* Extrator Cloud: aviso de token desatualizado */
+.bb-token-aviso {
+    flex: none;
+    margin-top: 0;
+}
+
+.aviso-acoes {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.aviso-acoes .age-warning-action {
+    margin-top: 0;
+    height: 34px;
+}
+
 /* Extrator Cloud: resultado e log da extração na própria tela */
 .bb-status {
     display: flex;

@@ -42,6 +42,7 @@
         verifyBitbucket: (config) => invoke('verify_bitbucket', { config }),
         extractBitbucket: (config) => invoke('extract_bitbucket', { config }),
         prBaseBranch: (config) => invoke('pr_base_branch', { config }),
+        checkBitbucketToken: (config) => invoke('check_bitbucket_token', { config }),
         folderOpenInExplorer: (caminho) => invoke('folder_open_in_explorer', { caminho }),
 
         // Cópia
