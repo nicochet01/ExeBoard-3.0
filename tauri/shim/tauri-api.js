@@ -41,6 +41,8 @@
         listBranches: (config) => invoke('list_branches', { config }),
         verifyBitbucket: (config) => invoke('verify_bitbucket', { config }),
         extractBitbucket: (config) => invoke('extract_bitbucket', { config }),
+        prBaseBranch: (config) => invoke('pr_base_branch', { config }),
+        folderOpenInExplorer: (caminho) => invoke('folder_open_in_explorer', { caminho }),
 
         // Cópia
         buildQueue: (data) => invoke('build_queue', { reqs: data.reqs, branchRoot: data.branchRoot }),

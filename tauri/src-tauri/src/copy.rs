@@ -1,5 +1,6 @@
 //! Motor de cópia — seção 7 de docs/REGRAS-DE-NEGOCIO.md.
-//! Montagem da fila, cópia segura (`.tmp` + troca atômica, 5 tentativas, cancelável), 4 trabalhadores simultâneos.
+//! Montagem da fila, cópia segura (`.tmp` + troca atômica, 5 tentativas, cancelável), 4 trabalhadores simultâneos,
+//! cópia nativa do Windows (CopyFileExW) e pulo dos arquivos que já estão iguais no destino.
 
 use crate::index::{cached_index, index_dir, Index};
 use crate::state::AppState;
@@ -7,7 +8,13 @@ use crate::util::*;
 use futures::StreamExt;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use std::io::{Read, Write};
+use core::ffi::c_void;
+use std::sync::atomic::AtomicBool;
+use windows::core::PCWSTR;
+use windows::Win32::Foundation::HANDLE;
+use windows::Win32::Storage::FileSystem::{
+    CopyFileExW, COPYFILE_FLAGS, COPYPROGRESSROUTINE_PROGRESS, LPPROGRESS_ROUTINE_CALLBACK_REASON, PROGRESS_CANCEL, PROGRESS_CONTINUE,
+};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -23,10 +30,11 @@ const LARANJA: &str = "#fab387";
 
 const MAX_RETRIES: u32 = 5;
 const RETRY_DELAY: Duration = Duration::from_secs(2);
-/// Acima disso a cópia é em stream (cancelável no meio); abaixo, a cópia nativa do SO.
-const LARGE_FILE_STREAM_THRESHOLD: u64 = 200 * 1024 * 1024;
-const COPY_BUFFER_SIZE: usize = 1024 * 1024;
 const CONCURRENCY: usize = 4;
+/// Arquivos copiados ao mesmo tempo dentro de uma pasta dos .cds (que costuma ter centenas de arquivos)
+const CONCURRENCY_PASTA: usize = 6;
+/// Diferença de data tolerada para considerar o destino igual à origem (sistemas de arquivos arredondam a data)
+const TOLERANCIA_DATA: Duration = Duration::from_secs(2);
 
 fn cancelado(app: &AppHandle) -> bool {
     app.state::<AppState>().copy_cancel.load(Ordering::SeqCst)
@@ -220,6 +228,21 @@ pub async fn build_queue(app: AppHandle, reqs: Option<Vec<Value>>, branch_root: 
 enum Resultado {
     Ok,
     Cancelado,
+    /// O destino já era igual à origem (mesmo tamanho e mesma data): nada a copiar
+    Igual,
+}
+
+/// O destino já tem o mesmo arquivo da origem? Mesmo tamanho e mesma data de modificação (a cópia nativa do Windows
+/// preserva a data, então um arquivo copiado antes pelo ExeBoard bate exatamente). Se o arquivo de destino foi
+/// alterado (ex.: a base .cds usada nos testes), a data muda e ele é copiado de novo.
+async fn sem_alteracao(origem: &Path, destino: &Path) -> bool {
+    let (Ok(o), Ok(d)) = (tokio::fs::metadata(origem).await, tokio::fs::metadata(destino).await) else { return false };
+    if !d.is_file() || o.len() != d.len() {
+        return false;
+    }
+    let (Ok(mo), Ok(md)) = (o.modified(), d.modified()) else { return false };
+    let dif = mo.duration_since(md).or_else(|_| md.duration_since(mo)).unwrap_or(Duration::MAX);
+    dif <= TOLERANCIA_DATA
 }
 
 /// Erro de trava/permissão (EPERM/EBUSY do Electron): acesso negado (5), violação de compartilhamento (32) ou de trava (33).
@@ -227,25 +250,51 @@ fn erro_de_trava(e: &std::io::Error) -> bool {
     matches!(e.raw_os_error(), Some(5) | Some(32) | Some(33)) || e.kind() == std::io::ErrorKind::PermissionDenied
 }
 
-/// Cópia em stream de 1 MB que respeita o token de cancelamento a cada bloco. Devolve `true` se foi cancelada.
-fn copia_stream_cancelavel(app: &AppHandle, origem: &Path, tmp: &Path) -> std::io::Result<bool> {
-    let mut entrada = std::fs::File::open(origem)?;
-    let mut saida = std::fs::File::create(tmp)?;
-    let mut buf = vec![0u8; COPY_BUFFER_SIZE];
-    loop {
-        if cancelado(app) {
-            drop(saida);
+/// Chamada pelo Windows durante a cópia: interrompe assim que o usuário cancela.
+unsafe extern "system" fn progresso_copia(
+    _total: i64,
+    _copiado: i64,
+    _stream: i64,
+    _stream_copiado: i64,
+    _n: u32,
+    _motivo: LPPROGRESS_ROUTINE_CALLBACK_REASON,
+    _origem: HANDLE,
+    _destino: HANDLE,
+    dados: *const c_void,
+) -> COPYPROGRESSROUTINE_PROGRESS {
+    // `dados` aponta para o AtomicBool de cancelamento do AppState, que vive enquanto o app estiver aberto
+    let cancelar = unsafe { &*(dados as *const AtomicBool) };
+    if cancelar.load(Ordering::SeqCst) { PROGRESS_CANCEL } else { PROGRESS_CONTINUE }
+}
+
+fn largo(p: &Path) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+    p.as_os_str().encode_wide().chain(std::iter::once(0)).collect()
+}
+
+/// Cópia nativa do Windows (CopyFileExW) para qualquer tamanho: E/S otimizada pelo sistema, preserva a data de
+/// modificação (usada para pular arquivos iguais) e é cancelável no meio. Devolve `true` se foi cancelada.
+fn copia_nativa(app: &AppHandle, origem: &Path, tmp: &Path) -> std::io::Result<bool> {
+    let (o, t) = (largo(origem), largo(tmp));
+    let estado = app.state::<AppState>();
+    let dados = &estado.copy_cancel as *const AtomicBool as *const c_void;
+    let r = unsafe { CopyFileExW(PCWSTR(o.as_ptr()), PCWSTR(t.as_ptr()), Some(progresso_copia), Some(dados), None, COPYFILE_FLAGS(0)) };
+    match r {
+        Ok(()) => Ok(false),
+        Err(_) if cancelado(app) => {
             let _ = std::fs::remove_file(tmp);
-            return Ok(true);
+            Ok(true)
         }
-        let n = entrada.read(&mut buf)?;
-        if n == 0 {
-            break;
+        Err(e) => {
+            // HRESULT 0x8007xxxx = erro Win32 xxxx (mantém 5/32/33 para a detecção de arquivo preso)
+            let hr = e.code().0 as u32;
+            if hr >> 16 == 0x8007 {
+                Err(std::io::Error::from_raw_os_error((hr & 0xFFFF) as i32))
+            } else {
+                Err(std::io::Error::new(std::io::ErrorKind::Other, e.message()))
+            }
         }
-        saida.write_all(&buf[..n])?;
     }
-    saida.flush()?;
-    Ok(false)
 }
 
 async fn tentar_copiar(app: &AppHandle, origem: &Path, destino: &Path, tmp: &Path) -> std::io::Result<Resultado> {
@@ -258,17 +307,12 @@ async fn tentar_copiar(app: &AppHandle, origem: &Path, destino: &Path, tmp: &Pat
             let _ = tokio::fs::set_permissions(destino, perm).await;
         }
     }
-    let tamanho = tokio::fs::metadata(origem).await.map(|m| m.len()).unwrap_or(0);
-    if tamanho > LARGE_FILE_STREAM_THRESHOLD {
-        let (a, o, t) = (app.clone(), origem.to_path_buf(), tmp.to_path_buf());
-        let cancelou = tauri::async_runtime::spawn_blocking(move || copia_stream_cancelavel(&a, &o, &t))
-            .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))??;
-        if cancelou {
-            return Ok(Resultado::Cancelado);
-        }
-    } else {
-        tokio::fs::copy(origem, tmp).await?; // cópia nativa do SO (mais rápida no caso comum)
+    let (a, o, t) = (app.clone(), origem.to_path_buf(), tmp.to_path_buf());
+    let cancelou = tauri::async_runtime::spawn_blocking(move || copia_nativa(&a, &o, &t))
+        .await
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))??;
+    if cancelou {
+        return Ok(Resultado::Cancelado);
     }
     if cancelado(app) {
         let _ = tokio::fs::remove_file(tmp).await;
@@ -282,6 +326,9 @@ async fn tentar_copiar(app: &AppHandle, origem: &Path, destino: &Path, tmp: &Pat
 /// Copia gravando em `destino.tmp` e trocando no fim. Até 5 tentativas; em erro de trava mata o processo do exe
 /// de destino antes de tentar de novo. Esgotadas, explica a provável falta de Administrador.
 async fn secure_copy_file(app: &AppHandle, origem: &Path, destino: &Path) -> Result<Resultado, String> {
+    if sem_alteracao(origem, destino).await {
+        return Ok(Resultado::Igual);
+    }
     let mut tentativas = 0u32;
     loop {
         if cancelado(app) {
@@ -330,19 +377,30 @@ async fn secure_copy_file(app: &AppHandle, origem: &Path, destino: &Path) -> Res
     }
 }
 
+/// Resultado da cópia de uma pasta: quantos arquivos foram copiados e quantos já estavam iguais.
+struct ResumoPasta {
+    cancelado: bool,
+    copiados: usize,
+    iguais: usize,
+}
+
 /// Copia uma pasta inteira (mescla e sobrescreve; não apaga o que só existe no destino).
-async fn copy_folder_recursive(app: &AppHandle, origem: &Path, destino: &Path) -> Result<Resultado, String> {
+/// Primeiro cria as pastas e lista os arquivos; depois copia vários arquivos ao mesmo tempo, pulando os que já estão
+/// iguais no destino. Se algum arquivo falhar de vez (após as 5 tentativas), a pasta inteira conta como erro.
+async fn copy_folder_recursive(app: &AppHandle, origem: &Path, destino: &Path) -> Result<ResumoPasta, String> {
+    let cancelou = ResumoPasta { cancelado: true, copiados: 0, iguais: 0 };
     if cancelado(app) {
-        return Ok(Resultado::Cancelado);
+        return Ok(cancelou);
     }
     let meta = tokio::fs::metadata(origem).await.map_err(|e| e.to_string())?;
     if !meta.is_dir() {
         return Err(format!("{} não é uma pasta", origem.display()));
     }
+    let mut arquivos: Vec<(PathBuf, PathBuf)> = Vec::new();
     let mut pilha: Vec<(PathBuf, PathBuf)> = vec![(origem.to_path_buf(), destino.to_path_buf())];
     while let Some((src, dst)) = pilha.pop() {
         if cancelado(app) {
-            return Ok(Resultado::Cancelado);
+            return Ok(cancelou);
         }
         if !dst.exists() {
             tokio::fs::create_dir_all(&dst).await.map_err(|e| e.to_string())?;
@@ -350,19 +408,46 @@ async fn copy_folder_recursive(app: &AppHandle, origem: &Path, destino: &Path) -
         }
         let mut rd = tokio::fs::read_dir(&src).await.map_err(|e| e.to_string())?;
         while let Some(e) = rd.next_entry().await.map_err(|e| e.to_string())? {
-            if cancelado(app) {
-                return Ok(Resultado::Cancelado);
-            }
             let s = src.join(e.file_name());
             let d = dst.join(e.file_name());
             if e.file_type().await.map(|t| t.is_dir()).unwrap_or(false) {
                 pilha.push((s, d));
-            } else if secure_copy_file(app, &s, &d).await? == Resultado::Cancelado {
-                return Ok(Resultado::Cancelado);
+            } else {
+                arquivos.push((s, d));
             }
         }
     }
-    Ok(Resultado::Ok)
+
+    let copiados = AtomicUsize::new(0);
+    let iguais = AtomicUsize::new(0);
+    let resultados: Vec<Result<Resultado, String>> = futures::stream::iter(arquivos)
+        .map(|(s, d)| {
+            let (copiados, iguais) = (&copiados, &iguais);
+            async move {
+                if cancelado(app) {
+                    return Ok(Resultado::Cancelado);
+                }
+                let r = secure_copy_file(app, &s, &d).await?;
+                match r {
+                    Resultado::Ok => copiados.fetch_add(1, Ordering::SeqCst),
+                    Resultado::Igual => iguais.fetch_add(1, Ordering::SeqCst),
+                    Resultado::Cancelado => 0,
+                };
+                Ok(r)
+            }
+        })
+        .buffer_unordered(CONCURRENCY_PASTA)
+        .collect()
+        .await;
+    if let Some(Err(e)) = resultados.iter().find(|r| r.is_err()) {
+        return Err(e.clone());
+    }
+    let foi_cancelado = cancelado(app) || resultados.iter().any(|r| matches!(r, Ok(Resultado::Cancelado)));
+    Ok(ResumoPasta {
+        cancelado: foi_cancelado,
+        copiados: copiados.load(Ordering::SeqCst),
+        iguais: iguais.load(Ordering::SeqCst),
+    })
 }
 
 // =====================================================================
@@ -385,6 +470,7 @@ pub async fn execute_copy_files(app: AppHandle, state: State<'_, AppState>, fila
     let erros = Arc::new(AtomicUsize::new(0));
     let novos = Arc::new(AtomicUsize::new(0));
     let ignorados = Arc::new(AtomicUsize::new(0));
+    let iguais = Arc::new(AtomicUsize::new(0));
     let concluidos = Arc::new(AtomicUsize::new(0));
 
     let emitir = {
@@ -403,7 +489,8 @@ pub async fn execute_copy_files(app: AppHandle, state: State<'_, AppState>, fila
     futures::stream::iter(fila)
         .for_each_concurrent(CONCURRENCY, |tarefa| {
             let app = app.clone();
-            let (erros, novos, ignorados, concluidos) = (erros.clone(), novos.clone(), ignorados.clone(), concluidos.clone());
+            let (erros, novos, ignorados, iguais, concluidos) =
+                (erros.clone(), novos.clone(), ignorados.clone(), iguais.clone(), concluidos.clone());
             let emitir = &emitir;
             async move {
                 if cancelado(&app) {
@@ -421,19 +508,34 @@ pub async fn execute_copy_files(app: AppHandle, state: State<'_, AppState>, fila
                     }
                     let eh_novo = !destino.exists();
                     if tipo == "bd" {
-                        if copy_folder_recursive(&app, &origem, &destino).await? == Resultado::Cancelado {
+                        let resumo = copy_folder_recursive(&app, &origem, &destino).await?;
+                        if resumo.cancelado {
                             ignorados.fetch_add(1, Ordering::SeqCst);
                             return Ok(());
                         }
+                        if resumo.copiados == 0 && resumo.iguais > 0 {
+                            iguais.fetch_add(1, Ordering::SeqCst);
+                            send_log(&app, &format!("SEM ALTERAÇÃO: pasta {} já estava igual à da branch ({} arquivo(s)).", basename(&destino), resumo.iguais), CINZA_CLARO, "copiar");
+                            return Ok(());
+                        }
                         novos.fetch_add(1, Ordering::SeqCst);
-                        send_log(&app, &format!("PASTA ATUALIZADA: {}", basename(&destino)), VERDE, "copiar");
+                        let extra = if resumo.iguais > 0 { format!(" ({} copiado(s), {} já igual(is))", resumo.copiados, resumo.iguais) } else { String::new() };
+                        send_log(&app, &format!("PASTA ATUALIZADA: {}{extra}", basename(&destino)), VERDE, "copiar");
                     } else {
                         if let Some(pai) = destino.parent() {
                             tokio::fs::create_dir_all(pai).await.map_err(|e| e.to_string())?;
                         }
-                        if secure_copy_file(&app, &origem, &destino).await? == Resultado::Cancelado {
-                            ignorados.fetch_add(1, Ordering::SeqCst);
-                            return Ok(());
+                        match secure_copy_file(&app, &origem, &destino).await? {
+                            Resultado::Cancelado => {
+                                ignorados.fetch_add(1, Ordering::SeqCst);
+                                return Ok(());
+                            }
+                            Resultado::Igual => {
+                                iguais.fetch_add(1, Ordering::SeqCst);
+                                send_log(&app, &format!("SEM ALTERAÇÃO: {} já estava igual ao da branch.", basename(&destino)), CINZA_CLARO, "copiar");
+                                return Ok(());
+                            }
+                            Resultado::Ok => {}
                         }
                         novos.fetch_add(1, Ordering::SeqCst);
                         if eh_novo {
@@ -462,7 +564,8 @@ pub async fn execute_copy_files(app: AppHandle, state: State<'_, AppState>, fila
         "status": status,
         "errors": erros.load(Ordering::SeqCst),
         "news": novos.load(Ordering::SeqCst),
-        "skipped": ignorados.load(Ordering::SeqCst)
+        "skipped": ignorados.load(Ordering::SeqCst),
+        "unchanged": iguais.load(Ordering::SeqCst)
     }))
 }
 

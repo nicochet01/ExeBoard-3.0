@@ -1601,6 +1601,7 @@ body.light-theme .help-icon::after {
 .i-help { --i: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3'/%3E%3Cline x1='12' y1='17' x2='12.01' y2='17'/%3E%3C/svg%3E"); }
 .i-uparrow { --i: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpolyline points='16 12 12 8 8 12'/%3E%3Cline x1='12' y1='16' x2='12' y2='8'/%3E%3C/svg%3E"); }
 .i-book { --i: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 19.5A2.5 2.5 0 0 1 6.5 17H20'/%3E%3Cpath d='M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z'/%3E%3C/svg%3E"); }
+.i-message { --i: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'/%3E%3Cline x1='8' y1='9' x2='16' y2='9'/%3E%3Cline x1='8' y1='13' x2='13' y2='13'/%3E%3C/svg%3E"); }
 .i-power { --i: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18.36 6.64a9 9 0 1 1-12.73 0'/%3E%3Cline x1='12' y1='2' x2='12' y2='12'/%3E%3C/svg%3E"); }
 /* ===== Scrollbar ===== */
 ::-webkit-scrollbar {
@@ -1998,7 +1999,7 @@ body.light-theme .help-icon::after {
 
 .helper-text {
     font-size: 0.72rem;
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--text-secondary);
     margin-top: 6px;
     display: block;
 }
@@ -2082,6 +2083,56 @@ body.light-theme .help-icon::after {
     line-height: 1.5;
     text-align: center;
     opacity: 0.85;
+}
+
+/* Aviso informativo (ex.: lote trocado automaticamente pela versão dos executáveis) */
+.age-warning.info {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+.age-warning.info .age-warning-title {
+    color: var(--accent);
+}
+
+/* Extrator Cloud: resultado e log da extração na própria tela */
+.bb-status {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex: none;
+    padding: 12px 16px;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 0.88rem;
+}
+
+.bb-status .bb-status-text {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.bb-status.ok {
+    background: var(--success-soft);
+    color: var(--success);
+}
+
+.bb-status.err {
+    background: var(--danger-soft);
+    color: var(--danger);
+}
+
+.bb-log-card {
+    flex-direction: column;
+    gap: 10px;
+    flex: none;
+    height: 230px;
+}
+
+.helper-text .link-btn {
+    font-size: inherit;
+    padding: 0 4px;
 }
 
 /* ===== Tutorial: botões do card ===== */

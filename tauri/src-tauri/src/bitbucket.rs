@@ -250,7 +250,7 @@ async fn baixar(c: &Client, url: &str, user: &str, token: &str, destino: &Path) 
 pub async fn extract_bitbucket(app: AppHandle, config: Value) -> Result<Value, String> {
     let (user, token, repo) = (campo(&config, "user"), campo(&config, "appPassword"), campo(&config, "repo"));
     let (base, target_dir) = (campo(&config, "base"), campo(&config, "targetDir"));
-    let log = |m: &str, cor: &str| send_log(&app, m, cor, "copiar");
+    let log = |m: &str, cor: &str| send_log(&app, m, cor, "extrator"); // aparece na própria tela do Extrator
 
     log("Iniciando comunicação com Bitbucket API...", "#89b4fa");
 
@@ -344,4 +344,60 @@ pub async fn extract_bitbucket(app: AppHandle, config: Value) -> Result<Value, S
     }
     log("🎉 Extração Concluída com Sucesso!", "#4ade80");
     Ok(json!({ "success": true, "root": path_str(&raiz_extracao) }))
+}
+
+/// Branch base sugerida para a branch da tarefa: o destino do pull request dela (o mesmo que o Jira mostra no painel
+/// de desenvolvimento). Prefere o PR aberto mais recente; sem aberto, o mais recente mergeado/recusado.
+/// Devolve `{base, pr, state}` ou `{base: null, error}`.
+#[tauri::command]
+pub async fn pr_base_branch(config: Value) -> Result<Value, String> {
+    let (ws, repo, user, token, branch) = (
+        campo(&config, "workspace"),
+        campo(&config, "repo"),
+        campo(&config, "user"),
+        campo(&config, "appPassword"),
+        campo(&config, "branch"),
+    );
+    if ws.is_empty() || repo.is_empty() || user.is_empty() || token.is_empty() || branch.is_empty() {
+        return Ok(json!({ "base": null, "error": null }));
+    }
+    let mut url = url_repo(&ws, &repo, &["pullrequests"])?;
+    url.query_pairs_mut()
+        .append_pair("q", &format!("source.branch.name = \"{}\"", bbq(&branch)))
+        .append_pair("state", "OPEN")
+        .append_pair("state", "MERGED")
+        .append_pair("state", "DECLINED")
+        .append_pair("sort", "-updated_on")
+        .append_pair("pagelen", "20")
+        .append_pair("fields", "values.id,values.state,values.updated_on,values.destination.branch.name");
+    let res = match cliente().get(url).basic_auth(&user, Some(&token)).send().await {
+        Err(e) => return Ok(json!({ "base": null, "error": erro_rede(&e) })),
+        Ok(r) => r,
+    };
+    if !res.status().is_success() {
+        let msg = mensagem_erro(res, "Não foi possível consultar os pull requests").await;
+        // Token criado só com leitura de repositório: a API recusa a leitura de pull requests (403 por escopo)
+        let msg = if msg.contains("privilege scope") || msg.contains("scope") {
+            "o API Token não tem permissão para ler pull requests. Crie um token com a permissão \"Read\" em Pull requests (read:pullrequest:bitbucket) para a base ser preenchida sozinha".to_string()
+        } else {
+            msg
+        };
+        return Ok(json!({ "base": null, "error": msg }));
+    }
+    let data: Value = res.json().await.unwrap_or(Value::Null);
+    let prs: Vec<&Value> = data.get("values").and_then(|v| v.as_array()).map(|a| a.iter().collect()).unwrap_or_default();
+    // já vêm do mais recente para o mais antigo; o aberto ganha
+    let escolhido = prs
+        .iter()
+        .find(|p| p.get("state").and_then(|s| s.as_str()) == Some("OPEN"))
+        .or_else(|| prs.first())
+        .copied();
+    match escolhido.and_then(|p| p.pointer("/destination/branch/name").and_then(|n| n.as_str()).map(|n| (p, n))) {
+        Some((p, nome)) => Ok(json!({
+            "base": nome,
+            "pr": p.get("id").cloned().unwrap_or(Value::Null),
+            "state": p.get("state").cloned().unwrap_or(Value::Null)
+        })),
+        None => Ok(json!({ "base": null, "error": null })),
+    }
 }

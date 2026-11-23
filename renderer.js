@@ -38,6 +38,9 @@ let perfilAtivo = '734';
 const perfilVisivel = (item) => !item.Perfil || item.Perfil === '*' || item.Perfil === perfilAtivo;
 const rotuloPerfil = (p) => (p === '733' || p === '734') ? p : 'Ambos';
 const classePerfil = (p) => p === '733' ? 'p733' : p === '734' ? 'p734' : 'pamb';
+// Lote de um executável CLIENTE pelo nome: termina em "X" = 734 (AgroX, FinAgroX, ExpedX); termina em "3C" ou é só o
+// nome = 733 (Agro3C, FinAgro3C, Exped). Usado em clientes novos e nos que ainda não têm lote.
+const perfilPeloNome = (nome) => /x$/i.test(String(nome || '').trim().replace(/\.exe$/i, '')) ? '734' : '733';
 
 // Memória de Logs para Filtragem (Limite de 500 entradas para proteção de memória)
 let logMemory = [];
@@ -108,6 +111,10 @@ if (window.api && window.api.onUpdateDownloaded) {
 }
 
 // ==== Logs ====
+// Cada tela tem o seu log: Copiar dados, Servidores e Extrator Cloud
+const idDoLog = (target) => target === 'servidores' ? 'rtbLogServidores' : target === 'extrator' ? 'rtbLogExtrator' : 'rtbLog';
+const idDaUltimaLinha = (target) => target === 'servidores' ? 'logPeekServidores' : target === 'extrator' ? null : 'logPeekCopiar';
+
 function appendLog(data, colorParam, targetParam) {
     let msg, color, target;
     
@@ -138,8 +145,9 @@ function appendLog(data, colorParam, targetParam) {
 }
 
 function renderLogEntry(entry) {
-    const box = entry.target === 'servidores' ? document.getElementById('rtbLogServidores') : document.getElementById('rtbLog');
+    const box = document.getElementById(idDoLog(entry.target));
     if(!box) return;
+    if (entry.target === 'extrator') { const card = document.getElementById('bbLogCard'); if (card) card.style.display = 'flex'; }
 
     const div = document.createElement('div');
     div.className = 'log-entry';
@@ -162,7 +170,8 @@ function renderLogEntry(entry) {
 
 // Barra recolhida do log: mostra só a última linha (com a cor da mensagem)
 function mostrarUltimaLinhaDoLog(entry) {
-    const peek = document.getElementById(entry.target === 'servidores' ? 'logPeekServidores' : 'logPeekCopiar');
+    const idPeek = idDaUltimaLinha(entry.target);
+    const peek = idPeek && document.getElementById(idPeek);
     if (!peek) return;
     peek.textContent = `${entry.time}  ${entry.msg}`;
     peek.style.color = entry.color;
@@ -176,7 +185,7 @@ window.toggleLog = (target = 'copiar') => {
     const rotulo = aba.querySelector('.log-toggle-label');
     if (rotulo) rotulo.textContent = aberto ? 'Recolher' : 'Abrir';
     if (aberto) {
-        const box = document.getElementById(target === 'servidores' ? 'rtbLogServidores' : 'rtbLog');
+        const box = document.getElementById(idDoLog(target));
         if (box) box.scrollTop = box.scrollHeight;
     }
 };
@@ -186,8 +195,7 @@ document.querySelectorAll('.logbar').forEach(bar => bar.addEventListener('keydow
 }));
 
 window.filterLogs = (type, target = 'copiar') => {
-    const boxId = target === 'servidores' ? 'rtbLogServidores' : 'rtbLog';
-    const box = document.getElementById(boxId);
+    const box = document.getElementById(idDoLog(target));
     box.innerHTML = '';
     const filtered = logMemory.filter(e => {
         if (e.target !== target) return false;
@@ -200,9 +208,10 @@ window.filterLogs = (type, target = 'copiar') => {
 // "Limpar log": esvazia a tela E a memória daquele log (senão um filtro traria as linhas de volta)
 window.limparLog = (target = 'copiar') => {
     logMemory = logMemory.filter(e => e.target !== target);
-    const box = document.getElementById(target === 'servidores' ? 'rtbLogServidores' : 'rtbLog');
+    const box = document.getElementById(idDoLog(target));
     if (box) box.innerHTML = '';
-    const peek = document.getElementById(target === 'servidores' ? 'logPeekServidores' : 'logPeekCopiar');
+    const idPeek = idDaUltimaLinha(target);
+    const peek = idPeek && document.getElementById(idPeek);
     if (peek) peek.textContent = '';
 };
 
@@ -258,12 +267,12 @@ function renderLists() {
     const actCont = document.getElementById('server-actions-list'); actCont.innerHTML = '';
     
     serverList.forEach((srv, idx) => {
-        if (!perfilVisivel(srv)) return; // idx continua sendo o índice real na lista (usado pelo polling)
+        // idx continua sendo o índice real na lista (usado pelo polling)
         const payload = JSON.stringify(srv).replace(/'/g, "&apos;");
         
-        // Na Aba 1 (Copiar Dados), mostramos apenas quem NÃO é Serviço Puro 
+        // Na Aba 1 (Copiar Dados), só o lote ativo e só quem NÃO é Serviço Puro
         // ou quem é AppServidora (marcado pelo botão Adicionar Exe)
-        const showInAba1 = !srv.IsPureService || srv.AppServidora;
+        const showInAba1 = perfilVisivel(srv) && (!srv.IsPureService || srv.AppServidora);
 
         if (showInAba1) {
             sCont.innerHTML += `<div class="list-item"><label class="custom-checkbox">
@@ -271,7 +280,7 @@ function renderLists() {
                 <span class="checkmark"></span><span>${srv.Nome}</span></label></div>`;
         }
 
-        // Aba 2 - Sempre mostramos todos OS SERVIÇOS
+        // Aba 2 - Sempre mostramos todos OS SERVIÇOS, de qualquer lote (733, 734 e Ambos)
         if (srv.Tipo === 'Servico') {
             actCont.innerHTML += `
                 <div class="server-item" data-type="${srv.Tipo}">
@@ -521,12 +530,14 @@ async function classificarItensSemPerfil() {
         });
         aplicar(clientList, d.CLIENTES);
         aplicar(serverList, d.SERVIDORES);
+        // Clientes que o padrão não conhece: o lote sai do nome do executável
+        clientList.forEach(c => { if (!c.Perfil) { c.Perfil = perfilPeloNome(c.Nome); n++; } });
         if (n > 0) {
             fullConfig.APLICACOES_CLIENTE = montarSecaoClientes();
             fullConfig.APLICACOES_SERVIDORAS = montarSecaoServidores();
             await window.api.saveConfigSection('APLICACOES_CLIENTE', fullConfig.APLICACOES_CLIENTE);
             await window.api.saveConfigSection('APLICACOES_SERVIDORAS', fullConfig.APLICACOES_SERVIDORAS);
-            appendLog(`${n} item(ns) classificado(s) por perfil (733/734) com base no padrão.`, LOG_COLORS.automation, 'copiar');
+            appendLog(`${n} item(ns) classificado(s) por perfil (733/734) com base no padrão e no nome do executável.`, LOG_COLORS.automation, 'copiar');
         }
         return n;
     } catch (e) {
@@ -957,7 +968,7 @@ document.getElementById('btnCopiarDados').addEventListener('click', async () => 
         if (validation.scenario === 'not_found') {
             showCustomModal(
                 "Pasta não encontrada",
-                "A pasta da Branch não foi encontrada. Verifique se o caminho está correto ou se o build da tarefa já foi finalizado.",
+                "A pasta da Branch não foi encontrada. " + MSG_PASTA_NAO_ENCONTRADA,
                 "error"
             );
         } else if (validation.scenario === 'root_branches') {
@@ -1054,7 +1065,8 @@ document.getElementById('btnCopiarDados').addEventListener('click', async () => 
         const block = await window.api.executarCopia(queue);
 
         if (block.status === 'completed') {
-            const skippedMsg = block.skipped ? ` (${block.skipped} ignorado(s))` : '';
+            const skippedMsg = (block.skipped ? ` (${block.skipped} ignorado(s))` : '') +
+                (block.unchanged ? ` (${block.unchanged} já estava(m) igual(is) à branch e não precisou(aram) ser copiado(s))` : '');
             const hasErrors = block.errors > 0;
             const errorsMsg = hasErrors ? ` (${block.errors} com erro — veja o log acima)` : '';
             appendLog(`Cópia finalizada. ${block.news} arquivos processados${skippedMsg}${errorsMsg}.`, hasErrors ? LOG_COLORS.retry : LOG_COLORS.success, 'copiar');
@@ -1473,7 +1485,7 @@ window.addClientRow = async () => {
             if(similar) subToUse = similar.SubDiretorios;
         }
 
-        clientList.push({Nome: exe, SubDiretorios: subToUse, Perfil: perfilAtivo}); // entra no lote que está em uso
+        clientList.push({Nome: exe, SubDiretorios: subToUse, Perfil: perfilPeloNome(exe)}); // lote pelo nome (X = 734)
         if (origin === 'branch') newItems.push({ type: 'client', index: clientList.length - 1 });
     });
     
@@ -1788,6 +1800,7 @@ function mostrarAvisoPerfil() {
     if (!box) return;
     const res = ultimaVersao;
     box.textContent = '';
+    box.classList.remove('info');
     if (!res || !res.perfil || res.perfil === perfilAtivo) { box.style.display = 'none'; return; }
 
     const title = document.createElement('div');
@@ -1815,14 +1828,93 @@ async function checkBranchVersion() {
     const res = await window.api.getBranchVersion({ branchPath, fileNames: names });
     if (token !== branchVersionToken) return; // a pasta mudou enquanto lia a versão
     ultimaVersao = res;
-    mostrarAvisoPerfil();
-    if (res && res.perfil && res.perfil !== perfilAtivo) {
-        appendLog(`Aviso: os executáveis da pasta são da versão ${res.version} (perfil ${res.perfil}) e o perfil selecionado é ${perfilAtivo}.`, LOG_COLORS.retry, 'copiar');
+    // A pasta escolhida define o lote: os executáveis 4.x são do 733 e os 5.x do 734. Troca sozinho (a pessoa pode
+    // voltar pelo botão do aviso ou pelo seletor de lote; aí o aviso de lote diferente volta a aparecer).
+    if (res && res.perfil && res.perfil !== perfilAtivo && !isCopying) {
+        const anterior = perfilAtivo;
+        trocarPerfil(res.perfil, { silencioso: true });
+        appendLog(`Lote ${res.perfil} selecionado automaticamente: os executáveis da pasta são da versão ${res.version}.`, LOG_COLORS.automation, 'copiar');
+        mostrarLoteAutomatico(res, anterior);
+    } else {
+        mostrarAvisoPerfil();
     }
 }
 
+// Aviso informativo depois da troca automática do lote, com a opção de voltar ao anterior
+function mostrarLoteAutomatico(res, anterior) {
+    const box = document.getElementById('branchProfileWarning');
+    if (!box) return;
+    box.textContent = '';
+    box.classList.add('info');
+    const title = document.createElement('div');
+    title.className = 'age-warning-title';
+    title.textContent = `Lote ${res.perfil} selecionado automaticamente: os executáveis desta pasta são da versão ${res.version}.`;
+    box.appendChild(title);
+    const voltar = document.createElement('button');
+    voltar.className = 'btn-secondary age-warning-action';
+    voltar.textContent = `Voltar para ${anterior}`;
+    voltar.onclick = () => trocarPerfil(anterior);
+    box.appendChild(voltar);
+    const fechar = document.createElement('button');
+    fechar.className = 'age-warning-close';
+    fechar.title = 'Dispensar aviso';
+    fechar.textContent = '✕';
+    fechar.onclick = () => { box.style.display = 'none'; };
+    box.appendChild(fechar);
+    box.style.display = 'block';
+}
+
+// ==== Pasta da Branch que não existe ====
+// Avisa na hora (ao sair do campo, escolher uma sugestão ou usar o Procurar): ou o nome está errado, ou a pasta com
+// os executáveis ainda não foi criada. Também orienta quando o caminho é a pasta com todas as branches.
+let branchPathToken = 0;
+const MSG_PASTA_NAO_ENCONTRADA = 'Confira se o nome da branch está certo. Se estiver, a pasta com os executáveis desta branch ainda não foi criada: o build da tarefa pode não ter terminado ou o Google Drive ainda não sincronizou.';
+
+function esconderAvisoPasta() {
+    const box = document.getElementById('branchPathWarning');
+    if (box) { box.style.display = 'none'; box.textContent = ''; }
+}
+
+// Devolve true se a pasta existe e é a pasta de uma branch (dá para seguir com as outras conferências)
+async function checkBranchPath() {
+    const box = document.getElementById('branchPathWarning');
+    if (!box || !window.api.validateBranch) return true;
+    const token = ++branchPathToken;
+    const branchPath = inputBranch.value.trim();
+    if (!branchPath) { esconderAvisoPasta(); return false; }
+    let res = null;
+    try { res = await window.api.validateBranch({ branchPath, fileNames: [] }); } catch (e) { return true; }
+    if (token !== branchPathToken) return false; // a pasta mudou enquanto conferia
+    const cenario = res && res.scenario;
+    if (cenario !== 'not_found' && cenario !== 'root_branches') { esconderAvisoPasta(); return true; }
+    box.textContent = '';
+    const title = document.createElement('div');
+    title.className = 'age-warning-title';
+    const hint = document.createElement('div');
+    hint.className = 'age-warning-hint';
+    if (cenario === 'not_found') {
+        title.textContent = '⚠️ Pasta não encontrada.';
+        hint.textContent = MSG_PASTA_NAO_ENCONTRADA;
+        appendLog(`Pasta da branch não encontrada: ${branchPath}`, LOG_COLORS.retry, 'copiar');
+    } else {
+        title.textContent = '⚠️ Esta é a pasta com todas as branches.';
+        hint.textContent = 'Complete com a pasta da branch da sua tarefa: digite o começo do nome (ex.: AG-12345) e escolha nas sugestões, ou use o Procurar.';
+    }
+    box.appendChild(title);
+    box.appendChild(hint);
+    box.style.display = 'block';
+    return false;
+}
+
 // Conferências que rodam quando a pasta da Branch é informada
-function verificarBranch() {
+async function verificarBranch() {
+    const pastaOk = await checkBranchPath();
+    if (!pastaOk) {
+        hideBranchAgeWarning();
+        ultimaVersao = null;
+        mostrarAvisoPerfil();
+        return;
+    }
     checkBranchExeAge();
     checkBranchVersion();
 }
@@ -1978,7 +2070,7 @@ window.applyDefaultConfig = async (opts = {}) => {
         (d.CLIENTES || []).forEach(c => {
             const existente = clientList.find(x => x.Nome.toLowerCase() === c.Nome.toLowerCase());
             if (existente) { classificar(existente, c); return; }
-            clientList.push({ Nome: c.Nome, SubDiretorios: c.SubDiretorios || '', Perfil: c.Perfil || '' });
+            clientList.push({ Nome: c.Nome, SubDiretorios: c.SubDiretorios || '', Perfil: c.Perfil || perfilPeloNome(c.Nome) });
             added++;
         });
         (d.SERVIDORES || []).forEach(s => {
@@ -1994,6 +2086,8 @@ window.applyDefaultConfig = async (opts = {}) => {
             });
             added++;
         });
+        // Clientes antigos sem lote que o padrão não conhece: o lote sai do nome do executável
+        clientList.forEach(c => { if (!c.Perfil) { c.Perfil = perfilPeloNome(c.Nome); classificados++; } });
         (d.PASTAS_CDS || []).forEach(n => {
             if (!bdList.some(x => x.toLowerCase() === n.toLowerCase())) { bdList.push(n); added++; }
         });
@@ -2305,6 +2399,8 @@ function renderBbSuggestions(inputId, suggestId) {
                     item.onclick = () => {
                         input.value = s;
                         suggestBox.style.display = 'none';
+                        if (inputId === 'bbBase') bbBaseEditadaManual = true;
+                        input.dispatchEvent(new Event('change'));
                     };
                     suggestBox.appendChild(item);
                 });
@@ -2345,7 +2441,7 @@ document.getElementById('btnVerifyBitbucket')?.addEventListener('click', async (
     const cfg = getBbConfig();
     
     if (!cfg.workspace || !cfg.repo || !cfg.user || !cfg.appPassword || !cfg.branch) {
-        appendLog('Preencha Credenciais e Branch da Tarefa para verificar.', '#f38ba8', 'copiar');
+        appendLog('Preencha Credenciais e Branch da Tarefa para verificar.', '#f38ba8', 'extrator');
         return;
     }
     
@@ -2400,26 +2496,126 @@ document.getElementById('btnExtractBitbucket')?.addEventListener('click', async 
     const cfg = getBbConfig();
     
     if (!cfg.workspace || !cfg.repo || !cfg.user || !cfg.appPassword || !cfg.branch || !cfg.targetDir) {
-        appendLog('Por favor, preencha todos os campos obrigatórios da extração.', '#f38ba8', 'copiar');
+        appendLog('Por favor, preencha todos os campos obrigatórios da extração.', '#f38ba8', 'extrator');
+        mostrarResultadoExtracao(false, 'Preencha Workspace, Repositório, Usuário, API Token, Branch da Tarefa e a Pasta de Destino.');
         return;
     }
-    
-    document.getElementById('modalBitbucket').style.display = 'none';
-    appendLog(`[Extrator Cloud] Iniciando download da branch: ${cfg.branch}`, '#cba6f7', 'copiar');
-    
+
+    // A tela do Extrator continua aberta: o progresso aparece no log dela e o resultado logo acima
+    appendLog(`[Extrator Cloud] Iniciando download da branch: ${cfg.branch}`, '#cba6f7', 'extrator');
     const btn = document.getElementById('btnExtractBitbucket');
+    const btnVerificar = document.getElementById('btnVerifyBitbucket');
     btn.disabled = true;
-    btn.textContent = '⏳ Extraindo...';
-    
-    const config = { workspace: cfg.workspace, repo: cfg.repo, user: cfg.user, appPassword: cfg.appPassword, base: cfg.base, branch: cfg.branch, targetDir: cfg.targetDir };
-    const res = await window.api.extractBitbucket(config);
-    
-    if (res.success && res.root) {
-        window.api.executeExternal(res.root); 
+    if (btnVerificar) btnVerificar.disabled = true;
+    btn.textContent = 'Extraindo...';
+    const resultado = document.getElementById('bbResultado');
+    if (resultado) resultado.style.display = 'none';
+
+    let res = null;
+    try {
+        const config = { workspace: cfg.workspace, repo: cfg.repo, user: cfg.user, appPassword: cfg.appPassword, base: cfg.base, branch: cfg.branch, targetDir: cfg.targetDir };
+        res = await window.api.extractBitbucket(config);
+    } catch (err) {
+        res = { success: false, msg: err && err.message ? err.message : String(err) };
+    } finally {
+        btn.disabled = false;
+        if (btnVerificar) btnVerificar.disabled = false;
+        btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Iniciar Extração';
     }
-    
-    btn.disabled = false;
-    btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Iniciar Extração';
+
+    if (res && res.success && res.root) {
+        mostrarResultadoExtracao(true, `Extração concluída. Arquivos em ${res.root}`, res.root);
+        // Só abre a pasta se ela (ou outra pasta dentro da pasta de destino) ainda não estiver aberta no Explorador
+        let jaAberta = false;
+        try { jaAberta = window.api.folderOpenInExplorer ? await window.api.folderOpenInExplorer(cfg.targetDir) : false; } catch (e) { jaAberta = false; }
+        if (jaAberta) appendLog('A pasta de destino já está aberta no Explorador de Arquivos; ela não foi aberta de novo.', '#a6adc8', 'extrator');
+        else window.api.executeExternal(res.root);
+    } else {
+        mostrarResultadoExtracao(false, `A extração não foi concluída: ${(res && res.msg) || 'erro desconhecido'}.`);
+    }
+});
+
+// Resultado da extração na própria tela (sucesso com botão para abrir a pasta, ou o motivo da falha)
+function mostrarResultadoExtracao(ok, texto, pasta) {
+    const box = document.getElementById('bbResultado');
+    if (!box) return;
+    box.textContent = '';
+    box.className = 'bb-status ' + (ok ? 'ok' : 'err');
+    const msg = document.createElement('span');
+    msg.className = 'bb-status-text';
+    msg.textContent = texto; // textContent: o texto pode vir da API
+    box.appendChild(msg);
+    if (ok && pasta) {
+        const abrir = document.createElement('button');
+        abrir.className = 'btn-secondary';
+        abrir.textContent = 'Abrir pasta';
+        abrir.onclick = () => window.api.executeExternal(pasta);
+        box.appendChild(abrir);
+    }
+    box.style.display = 'flex';
+}
+
+// ==== Branch base pelo pull request da branch da tarefa ====
+// O destino do pull request (o mesmo que o Jira mostra) é a base certa da comparação. Preenche sozinho, a menos que a
+// pessoa já tenha escolhido a base à mão; nesse caso só mostra o que o pull request indica, com um botão para usar.
+let bbBaseEditadaManual = false;
+let bbPrToken = 0;
+const TEXTO_PADRAO_BASE = 'A branch estável. Padrão: main.';
+document.getElementById('bbBase')?.addEventListener('input', () => { bbBaseEditadaManual = true; });
+
+async function sugerirBaseDoPR() {
+    const helper = document.getElementById('bbBaseHelper');
+    const base = document.getElementById('bbBase');
+    const cfg = getBbConfig();
+    if (!helper || !base || !window.api.prBaseBranch) return;
+    if (!cfg.branch) { helper.textContent = TEXTO_PADRAO_BASE; return; }
+    if (!cfg.workspace || !cfg.repo || !cfg.user || !cfg.appPassword) return;
+    const token = ++bbPrToken;
+    helper.textContent = 'Procurando o pull request da branch da tarefa...';
+    let r = null;
+    try {
+        r = await window.api.prBaseBranch({ workspace: cfg.workspace, repo: cfg.repo, user: cfg.user, appPassword: cfg.appPassword, branch: cfg.branch });
+    } catch (e) { r = { base: null, error: e && e.message ? e.message : String(e) }; }
+    if (token !== bbPrToken) return; // a branch mudou enquanto consultava
+    helper.textContent = '';
+    if (r && r.base) {
+        const estado = { OPEN: 'aberto', MERGED: 'mergeado', DECLINED: 'recusado' }[r.state] || '';
+        const pr = `pull request #${r.pr}${estado ? ' (' + estado + ')' : ''}`;
+        if (!bbBaseEditadaManual || !base.value.trim() || base.value.trim() === r.base) {
+            base.value = r.base;
+            helper.textContent = `Preenchida pelo ${pr}: a tarefa vai para ${r.base}.`;
+        } else {
+            helper.textContent = `O ${pr} vai para ${r.base}. `;
+            const usar = document.createElement('button');
+            usar.type = 'button';
+            usar.className = 'link-btn';
+            usar.textContent = `Usar ${r.base}`;
+            usar.onclick = () => { base.value = r.base; bbBaseEditadaManual = false; helper.textContent = `Preenchida pelo ${pr}: a tarefa vai para ${r.base}.`; };
+            helper.appendChild(usar);
+        }
+    } else if (r && r.error) {
+        helper.textContent = `Não foi possível consultar o pull request (${r.error}). Informe a branch base.`;
+    } else {
+        helper.textContent = 'Nenhum pull request encontrado para esta branch. Informe a branch base (padrão: main).';
+    }
+}
+document.getElementById('bbBranch')?.addEventListener('change', sugerirBaseDoPR);
+
+// ==== Sugestões e ajustes ====
+// Abre o formulário (Google Forms) definido em config-padrao.json -> LINKS.SUGESTOES. O link fica no arquivo que
+// acompanha o app, então pode ser trocado sem mexer no código. Só endereços https são abertos.
+document.getElementById('btnSugestoes')?.addEventListener('click', async () => {
+    let link = '';
+    try {
+        const r = await window.api.getDefaultConfig();
+        link = String((r && r.data && r.data.LINKS && r.data.LINKS.SUGESTOES) || '').trim();
+    } catch (e) { link = ''; }
+    if (/^https:\/\//i.test(link)) {
+        window.api.openExternal(link);
+        appendLog('Abrindo o formulário de sugestões e ajustes no navegador...', LOG_COLORS.info, 'copiar');
+    } else {
+        showCustomModal('Sugestões e ajustes', 'O formulário de sugestões ainda não foi configurado nesta versão do ExeBoard. Enquanto isso, fale com a equipe do ExeBoard (veja Sobre e ajuda).', 'info');
+    }
 });
 
 // Botão para abrir o Modal do Bitbucket

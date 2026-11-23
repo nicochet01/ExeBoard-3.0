@@ -146,12 +146,14 @@ Conteúdo atual:
   `ViasoftServerAgro` (Aplicação, `\Agro`, 733); `ViasoftServerAgroApi` e `ViasoftServerAgroJobs` (Serviço, `\Agro`, `*`);
   `ViasoftServerAgroX` (Serviço, `\Agro`, 734); `ViasoftServerDFE` (Aplicação, `\DFe`, 733); `ViasoftServerDfeX` (Serviço, `\DFe`, 734).
 - `PASTAS_CDS`: `Firebird`, `Oracle`.
+- `LINKS.SUGESTOES`: endereço (https) do formulário de **Sugestões e ajustes** (Google Forms). Vazio = o botão avisa que o formulário ainda não foi configurado.
 - O backend só **lê** o arquivo (`get-default-config` → `{data}` ou `{error}`).
 - **Aplicar padrão** (sempre **não destrutivo**): preenche só caminhos **vazios**; acrescenta itens que faltam (comparação por nome,
   case-insensitive); itens já existentes **sem perfil** recebem o perfil do padrão; **nunca** apaga nem muda perfil já escolhido.
   Depois salva a configuração inteira.
 - **Classificação automática na abertura**: itens de listas antigas sem `Perfil` que o padrão conhece recebem o perfil;
-  só grava se classificou algo (e grava **apenas** as duas seções de listas); loga "N item(ns) classificado(s) por perfil (733/734) com base no padrão."
+  **clientes** que o padrão não conhece recebem o lote **pelo nome do executável** (seção 4); só grava se classificou algo (e grava **apenas** as duas seções de listas);
+  loga "N item(ns) classificado(s) por perfil (733/734) com base no padrão e no nome do executável."
 
 ---
 
@@ -159,8 +161,13 @@ Conteúdo atual:
 
 - Cada item de cliente/servidor tem `Perfil`: `'733'`, `'734'`, `'*'` (Ambos) ou vazio (**legado = Ambos**).
 - **Visível** no perfil ativo quando: sem perfil, ou `'*'`, ou igual ao perfil ativo.
-- O perfil ativo filtra: lista Clientes, lista Servidores da aba Copiar, lista de serviços da aba Servidores, contagens e a checagem de idade.
-  **Não filtra** a lista de Pastas dos .cds.
+- O perfil ativo filtra: lista Clientes, lista Servidores da aba Copiar, contagens e a checagem de idade.
+  **Não filtra** a lista de Pastas dos .cds **nem a aba Servidores** (que mostra os serviços dos dois lotes, para iniciar/parar qualquer um).
+- **Lote pelo nome do executável CLIENTE**: termina em **"X"** → **734** (AgroX, FinAgroX, ExpedX); termina em **"3C"** ou é só o nome → **733** (Agro3C, FinAgro3C, Exped).
+  Vale para clientes **novos** (Adicionar Exes) e para os que ainda não têm lote; quem já tem lote não muda.
+- **Lote automático pela branch**: ao informar a pasta da branch (sair do campo, escolher sugestão ou Procurar), a versão dos executáveis define o lote
+  (4.x → 733, 5.x → 734) e o seletor **troca sozinho**, com o aviso informativo "Lote N selecionado automaticamente: os executáveis desta pasta são da versão X." e o botão
+  **"Voltar para M"** (volta ao lote anterior; aí aparece o aviso normal de lote diferente). Não troca durante uma cópia nem na abertura do app.
 - Descrições: 733 = "Lote 733 · versão 4.0.x"; 734 = "Lote 734 · versão 5.0.x". Resumo: "N cliente(s) · N servidor(es) neste perfil".
 - Seletor segmentado 733/734 no painel "Copiar". Trocar de perfil: salva `GERAL.PERFIL_ATIVO` (seção), re-renderiza listas,
   loga "Perfil NNN selecionado.", reconfere idade e aviso de versão.
@@ -179,7 +186,7 @@ Conteúdo atual:
 
 ## 5. Tela principal ("Copiar dados") [FRONT]
 
-**Menu lateral** (desde a interface nova): **Copiar dados | Servidores** (Operação), **Extrator Cloud** (Ferramentas) e, embaixo, **Configurações**, **Sobre e ajuda** e o botão de **tema** (escuro/claro). Na base do menu fica o indicador de **Administrador** (verde: "Pode parar e iniciar serviços"; amarelo: "Sem administrador — serviços podem falhar"). A versão do app aparece sob o nome. **Configurações** e **Extrator Cloud** abrem como telas sobre a área principal (o menu continua visível; clicar em outro item do menu fecha a tela aberta).
+**Menu lateral** (desde a interface nova): **Copiar dados | Servidores** (Operação), **Extrator Cloud** (Ferramentas) e, embaixo, **Configurações**, **Sobre e ajuda** e o botão de **tema** (escuro/claro). O item **Sugestões e ajustes** abre o formulário de `LINKS.SUGESTOES` (seção 3.4). Na base do menu fica o indicador de **Administrador** (verde: "Pode parar e iniciar serviços"; amarelo: "Sem administrador — serviços podem falhar"). A versão do app aparece sob o nome. **Configurações** e **Extrator Cloud** abrem como telas sobre a área principal (o menu continua visível; clicar em outro item do menu fecha a tela aberta).
 
 0. **Lote 733 | 734** — seletor no topo da tela (troca o perfil; ver seção 4).
 1. **Branch** — campo de texto com **sugestões** (ver 5.2) + botão **Procurar**; no canto do cartão, o resumo "N cliente(s) · M servidor(es) neste perfil". Abaixo, dois avisos opcionais:
@@ -284,21 +291,26 @@ Entrada: `reqs[{destDir, type: client|server|bd, itemData}]` e `branchRoot`. Sa�
 - Zera o token de cancelamento. **4 trabalhadores simultâneos** consomem a fila. Marca "cópia em andamento" **antes** de iniciar os workers.
 - Por tarefa: origem inexistente → "PULANDO: Origem não encontrada […]" (conta como ignorada).
   - **Arquivo**: cria a pasta destino, copia com `secureCopyFile`. Log: **"NOVO ARQUIVO (Instalação Limpa): nome"** (laranja) se o destino não existia, senão **"ATUALIZADO: caminho"** (verde).
-  - **Pasta (.cds)**: cópia **recursiva** (arquivo por arquivo, sequencial dentro da pasta), cria diretórios que faltam ("Criado diretório: X"), **sobrescreve/mescla**, **não apaga** o que só existe no destino. Log "PASTA ATUALIZADA: nome".
+  - **Pasta (.cds)**: cópia **recursiva**: cria primeiro os diretórios que faltam ("Criado diretório: X"), depois copia **6 arquivos ao mesmo tempo**; **sobrescreve/mescla**, **não apaga** o que só existe no destino.
+    Log "PASTA ATUALIZADA: nome (N copiado(s), M já igual(is))", ou "SEM ALTERAÇÃO: pasta X já estava igual à da branch (N arquivo(s))." quando nada mudou. Se um arquivo falhar de vez, a pasta conta como erro.
+  - **Arquivo igual** (mesmo tamanho e mesma data de modificação, tolerância de 2 s) **não é copiado de novo**: log "SEM ALTERAÇÃO: nome já estava igual ao da branch.".
+    Como a cópia preserva a data da origem, repetir a cópia da mesma build só copia o que mudou. Arquivo do destino alterado (ex.: base usada nos testes) tem outra data e é copiado de novo.
   - Erro numa tarefa: "ERRO FATAL em origem: mensagem", contador de erros++, **as demais continuam**.
-- Resultado: `{status: 'completed'|'cancelled', errors, news, skipped}`. `news` conta tudo que foi processado (arquivos e pastas), mesmo atualização.
+- Resultado: `{status: 'completed'|'cancelled', errors, news, skipped, unchanged}`. `news` conta o que foi copiado (arquivos e pastas); `unchanged` o que já estava igual
+  (a mensagem final acrescenta "(N já estava(m) igual(is) à branch e não precisou(aram) ser copiado(s))").
 - **Progresso** (evento `copy-progress`): `{current, total, percent, fileName}` a cada tarefa concluída (e um evento inicial com 0).
 - **Cancelar** (`cancel-copy`): liga o token; log "Solicitação de cancelamento recebida pelo Motor."; tarefas em andamento param, as pendentes não iniciam.
 
 ### 7.4 Cópia segura de arquivo (`secureCopyFile`)
 - Escreve em **`destino.tmp`** e só então **move (substitui) para o destino** — troca atômica. Se o destino existir, remove o atributo somente-leitura antes.
-- **Arquivo > 200 MB**: cópia em **stream de 1 MB** (para permitir cancelar no meio); abaixo disso usa a cópia nativa do SO.
+- Cópia **nativa do Windows** (`CopyFileExW`) para qualquer tamanho: E/S otimizada pelo sistema, **preserva a data de modificação** e é **cancelável no meio**
+  (a rotina de progresso do Windows consulta o token de cancelamento a cada bloco).
 - Em qualquer falha: apaga o `.tmp`. **Até 5 tentativas**, 2 s entre elas; cada falha (exceto a última) loga
   "Tentativa N falhou p/ nome. Falha física ou arquivo preso. Retentando...".
 - Se o erro for de trava (`EPERM`/`EBUSY`) e o destino for `.exe`: **mata o processo pelo nome do exe** antes de tentar de novo (cobre serviço com recuperação automática/watchdog).
 - Esgotadas as tentativas com erro de trava **e nenhum processo com aquele nome rodando**: loga a dica "Falha persistente ao gravar em "…" mesmo sem nenhum processo travando o arquivo pelo nome.
   Se o problema persistir, feche o ExeBoard e abra-o novamente como Administrador." e relança o erro.
-- Cancelamento é checado antes, durante (stream) e depois da cópia (apaga o `.tmp` e devolve "cancelled").
+- Cancelamento é checado antes, durante (callback do `CopyFileExW`) e depois da cópia (apaga o `.tmp` e devolve "cancelled").
 
 ---
 
@@ -347,6 +359,9 @@ Entrada: `reqs[{destDir, type: client|server|bd, itemData}]` e `branchRoot`. Sa�
 ### 9.1 `validate-branch` — pasta e arquivos
 Em ordem: pasta não existe → `not_found`; pasta é uma **raiz de branches** → `root_branches`; sem lista de arquivos → válida; algum exe da lista **não está** na branch →
 `missing_files` com a lista; erro → `error`. (Aceita nome com ou sem `.exe`, sem diferenciar maiúsculas.)
+- [FRONT] **Ao informar a pasta** (antes da cópia), se ela não existe aparece a faixa "⚠️ Pasta não encontrada." com "Confira se o nome da branch está certo. Se estiver, a pasta com os
+  executáveis desta branch ainda não foi criada: o build da tarefa pode não ter terminado ou o Google Drive ainda não sincronizou." (o mesmo texto do modal da cópia).
+  Se for a pasta com todas as branches: "⚠️ Esta é a pasta com todas as branches." + orientação para completar. Nesses casos a idade e a versão não são conferidas.
 
 ### 9.2 Raiz de branches (guarda)
 Uma pasta com **mais de 100 subpastas** no primeiro nível (ex.: a **ERP**, ~1000 branches) **não é uma branch**: não é varrida (varrer leria todas as branches e o "exe mais novo" viria de uma
@@ -362,8 +377,8 @@ nome depois do caminho para ver as sugestões, ou use o botão Procurar."
   Descarta resposta antiga se a pasta mudou durante a verificação (token).
 
 ### 9.4 Aviso perfil × versão
-- [FRONT] Faixa "⚠️ Os executáveis desta pasta são da versão X (perfil Y), mas o perfil selecionado é Z." com botão **"Trocar para Y"**; log de aviso. Some quando o perfil bate.
-  Não bloqueia; no Copiar pede confirmação (passo 5 da seção 6).
+- [FRONT] Ao informar a pasta, o lote **troca sozinho** para o da versão (seção 4). Se a pessoa voltar ao outro lote, aparece a faixa "⚠️ Os executáveis desta pasta são da versão X (perfil Y),
+  mas o perfil selecionado é Z." com botão **"Trocar para Y"**. Some quando o perfil bate. Não bloqueia; no Copiar pede confirmação (passo 5 da seção 6).
 
 ---
 
@@ -426,10 +441,16 @@ _Abre pelo item **Configurações** do menu lateral, ocupando a área ao lado do
   **429** "muitas requisições", sem rede "Sem conexão com o Bitbucket (…). Verifique a internet/VPN."); lista vazia sem erro → "Nenhuma branch encontrada" (só quando realmente não há).
 - **Verificar Arquivos** (`verify-bitbucket`, backend): resolve o hash das duas branches, consulta o **diffstat** `hashTarefa..hashBase` **seguindo todas as páginas** (`next`, teto de 100) e lista os nomes dos arquivos (sem os removidos).
   Erros: "Erro: Branch base 'X' não encontrada." etc. (mensagem real da API como acima); "Nenhum arquivo modificado encontrado entre as branches.".
-- **Iniciar Extração** (backend): exige todos os campos; fecha a janela e inicia. Passos: hashes das branches → diffstat → ignora `removed`, deduplica por caminho → prepara
+- **Branch base pelo pull request**: ao escolher/informar a **Branch da Tarefa**, o backend (`pr_base_branch`) consulta os pull requests do Bitbucket com essa branch de origem
+  (o mesmo que o Jira mostra) e usa o **destino** do PR aberto mais recente (sem aberto, o mais recente mergeado/recusado). A base é preenchida sozinha com o texto
+  "Preenchida pelo pull request #N (aberto): a tarefa vai para X."; se a pessoa já digitou outra base, ela não é trocada e aparece "O pull request #N vai para X. **Usar X**".
+  Sem PR: "Nenhum pull request encontrado…". ⚠️ O **API Token precisa da permissão de leitura de Pull requests** (`read:pullrequest:bitbucket`); sem ela a tela explica isso.
+- **Iniciar Extração** (backend): exige todos os campos; **a tela do Extrator continua aberta** (o progresso aparece no **log da extração**, dentro da própria tela, e o resultado
+  numa faixa verde "Extração concluída. Arquivos em …" com **Abrir pasta**, ou vermelha com o motivo da falha). Passos: hashes das branches → diffstat → ignora `removed`, deduplica por caminho → prepara
   `{destino}\{repositório}\branch` (arquivos com nome original) e `{destino}\{repositório}\{base}` (arquivos renomeados `nome(base).ext`; barras da base viram `-` e `<>:"\|?*` viram `_`) →
   ⚠️ **esvazia as duas pastas antes** → baixa em **lotes de 5** os arquivos (achatados, sem recriar diretórios) → arquivos novos que não existem na base vão para `arquivos_ausentes.txt` (um por linha) com aviso →
-  "🎉 Extração Concluída com Sucesso!" e **abre a pasta raiz** no Explorer. Cada falha é logada ("[ERRO] Falha ao baixar X (Tarefa/Base): …") sem derrubar o restante. Progresso "Progresso: [n/N] arquivo".
+  "🎉 Extração Concluída com Sucesso!" e **abre a pasta raiz** no Explorer — **a menos que** alguma janela do Explorador já esteja na pasta de destino ou dentro dela
+  (`folder_open_in_explorer`, via `Shell.Application.Windows()`; funciona também com o app como Administrador); nesse caso loga que a pasta já está aberta. Cada falha é logada ("[ERRO] Falha ao baixar X (Tarefa/Base): …") sem derrubar o restante. Progresso "Progresso: [n/N] arquivo".
 - O diffstat segue **todas as páginas** (antes só lia a primeira). A consulta de arquivos usa o mesmo código em "Verificar" e em "Iniciar Extração".
 
 ---

@@ -24,5 +24,8 @@
     { "Nome": "ViasoftServerDFE", "Tipo": "Aplicacao", "IsPureService": false, "AppServidora": true, "SubDiretorios": "\\DFe", "Perfil": "733" },
     { "Nome": "ViasoftServerDfeX", "Tipo": "Servico", "IsPureService": false, "AppServidora": true, "SubDiretorios": "\\DFe", "Perfil": "734" }
   ],
-  "PASTAS_CDS": ["Firebird", "Oracle"]
+  "PASTAS_CDS": ["Firebird", "Oracle"],
+  "LINKS": {
+    "SUGESTOES": "https://docs.google.com/forms/d/e/1FAIpQLScd8z5v7XuXOA5AswatxgbJ86BngtJiF_bWlfXFXfShRjHJCA/viewform"
+  }
 }

@@ -155,3 +155,22 @@ pub async fn restart_app(app: AppHandle, state: State<'_, AppState>) -> Result<V
         None => Ok(json!({ "error": "Nenhuma atualização baixada." })),
     }
 }
+
+/// Alguma janela do Explorador de Arquivos já está mostrando esta pasta (ou uma subpasta dela)? Usado pelo Extrator
+/// Cloud para não abrir de novo a pasta que a pessoa já está olhando. Na dúvida (erro ao consultar) responde `false`,
+/// e a pasta é aberta como antes.
+#[tauri::command]
+pub async fn folder_open_in_explorer(caminho: Option<String>) -> Result<bool, String> {
+    let alvo = norm_path(&caminho.unwrap_or_default());
+    if alvo.is_empty() {
+        return Ok(false);
+    }
+    // Shell.Application.Windows() lista as janelas do Explorer abertas na sessão; a saída em UTF-8 preserva acentos
+    let script = "[Console]::OutputEncoding=[Text.Encoding]::UTF8; (New-Object -ComObject Shell.Application).Windows() | ForEach-Object { try { $_.Document.Folder.Self.Path } catch {} }";
+    let out = run_cmd("powershell", &["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script]).await;
+    if !out.ok() {
+        return Ok(false);
+    }
+    let aberta = out.stdout.lines().map(|l| norm_path(l.trim())).any(|p| !p.is_empty() && (p == alvo || p.starts_with(&format!("{alvo}\\"))));
+    Ok(aberta)
+}

@@ -155,6 +155,8 @@ pub fn run() {
             crate::bitbucket::list_branches,
             crate::bitbucket::verify_bitbucket,
             crate::bitbucket::extract_bitbucket,
+            crate::bitbucket::pr_base_branch,
+            crate::ui_cmds::folder_open_in_explorer,
         ])
         .setup(|app| {
             log_info(&format!("Versão: {}", app.package_info().version));

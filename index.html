@@ -38,6 +38,7 @@
                 <ul class="nav-links">
                     <li data-tab="sobre"><span class="i i-info" aria-hidden="true"></span>Sobre e ajuda</li>
                 </ul>
+                <button class="nav-item" id="btnSugestoes" type="button" title="Enviar uma sugestão de melhoria ou pedir um ajuste no ExeBoard"><span class="i i-message" aria-hidden="true"></span>Sugestões e ajustes</button>
                 <button class="nav-item" id="btnToggleTheme" type="button" title="Alternar tema"><span class="i i-moon" id="themeIcon" aria-hidden="true"></span><span id="themeLabel">Tema escuro</span></button>
             </div>
 
@@ -74,6 +75,7 @@
                             </div>
                             <button class="btn-secondary" id="btnBuscarPath"><span class="i s i-folder" aria-hidden="true"></span>Procurar</button>
                         </div>
+                        <div id="branchPathWarning" class="age-warning" style="display:none;"></div>
                         <div id="branchAgeWarning" class="age-warning" style="display:none;"></div>
                         <div id="branchProfileWarning" class="age-warning" style="display:none;"></div>
                         <span class="sr-only" id="perfilDescricao"></span>
@@ -588,7 +590,7 @@
                                     </div>
                                     <div id="suggest-bbBase" class="path-suggestions"></div>
                                 </div>
-                                <span class="helper-text">A branch estável. Padrão: main.</span>
+                                <span class="helper-text" id="bbBaseHelper">A branch estável. Padrão: main.</span>
                             </div>
 
                             <div>
@@ -600,7 +602,7 @@
                                     </div>
                                     <div id="suggest-bbBranch" class="path-suggestions"></div>
                                 </div>
-                                <span class="helper-text">Sua branch com o código novo.</span>
+                                <span class="helper-text">Sua branch com o código novo. Ao escolher, a branch base é preenchida pelo pull request dela.</span>
                             </div>
 
                             <div>
@@ -620,6 +622,21 @@
 
                 <!-- Preview de Arquivos (Inicialmente Oculto) -->
                 <div id="bbPreviewContainer" class="bb-preview" style="display: none;"></div>
+
+                <!-- Resultado da extração (a tela continua aberta durante e depois da extração) -->
+                <div id="bbResultado" class="bb-status" style="display: none;"></div>
+                <div class="glass-group bb-log-card" id="bbLogCard" style="display: none;">
+                    <div class="log-toolbar">
+                        <span class="log-title"><span class="i s i-term" aria-hidden="true"></span>Log da extração</span>
+                        <span class="grow-spacer"></span>
+                        <button type="button" class="btn-icon-sm" title="Limpar log" onclick="limparLog('extrator')">
+                            <span class="i s i-trash" aria-hidden="true"></span>
+                        </button>
+                    </div>
+                    <div class="log-layout">
+                        <div class="log-box" id="rtbLogExtrator"></div>
+                    </div>
+                </div>
             </div>
 
             <div class="dock">
